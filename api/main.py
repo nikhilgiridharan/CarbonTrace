@@ -30,7 +30,10 @@ async def lifespan(app: FastAPI):
     if os.environ.get("CARBONPULSE_SKIP_LIFESPAN_DB") == "1":
         yield
         return
-    bootstrap.apply_schema()
+    try:
+        bootstrap.apply_schema()
+    except Exception as e:
+        print(f"Warning: schema apply failed: {e}")
     bootstrap.seed_epa_emission_factors()
     bootstrap.seed_pipeline_defaults()
     with get_conn() as conn, conn.cursor() as cur:
