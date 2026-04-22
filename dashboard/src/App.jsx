@@ -85,7 +85,7 @@ function Shell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
-        <StatusBar text="CarbonPulse · Scope 3 emissions intelligence" />
+        <StatusBar text="Verdant · Scope 3 emissions intelligence" />
       </div>
     </div>
   );

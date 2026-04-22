@@ -70,7 +70,7 @@ export default function Sidebar({ pipelineOk }) {
                 color: "var(--text-primary)",
               }}
             >
-              CarbonPulse
+              Verdant
             </div>
           </div>
         </div>
