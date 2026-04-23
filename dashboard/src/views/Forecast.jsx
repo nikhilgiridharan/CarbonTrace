@@ -10,7 +10,17 @@ export default function Forecast() {
   const [fc, setFc] = useState(null);
 
   useEffect(() => {
-    client.get(`/forecasts/supplier/${encodeURIComponent(supplier)}`, { params: { horizon: 30 } }).then((r) => setFc(r.data));
+    const controller = new AbortController();
+    client
+      .get(`/forecasts/supplier/${encodeURIComponent(supplier)}`, {
+        params: { horizon: 30 },
+        signal: controller.signal,
+      })
+      .then((r) => setFc(r.data))
+      .catch(() => {
+        /* ignore cancelled/failed request */
+      });
+    return () => controller.abort();
   }, [supplier]);
 
   const hist = (fc?.forecast || []).slice(0, 10).map((p) => ({

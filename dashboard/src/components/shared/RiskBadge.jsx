@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 const styles = {
   LOW: {
     background: "var(--risk-low-bg)",
@@ -39,7 +41,7 @@ const base = {
   gap: 4,
 };
 
-export default function RiskBadge({ tier }) {
+function RiskBadge({ tier }) {
   const t = (tier || "LOW").toUpperCase();
   const s = styles[t] || styles.LOW;
   return (
@@ -66,3 +68,5 @@ export default function RiskBadge({ tier }) {
     </span>
   );
 }
+
+export default memo(RiskBadge);

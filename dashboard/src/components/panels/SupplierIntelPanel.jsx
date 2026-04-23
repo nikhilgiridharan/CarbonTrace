@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import RiskBadge from "../shared/RiskBadge.jsx";
 import { formatKg } from "../../utils/formatters.js";
 
@@ -40,6 +40,9 @@ export default function SupplierIntelPanel({ suppliers, selectedId, onSelect }) 
   }, [suppliers, q, sortBy]);
 
   const maxE = useMemo(() => Math.max(1, ...filtered.map((s) => s.emissions_30d_kg || 0)), [filtered]);
+
+  const handleSearchChange = useCallback((e) => setQ(e.target.value), []);
+  const handleSelect = useCallback((id) => onSelect?.(id), [onSelect]);
 
   const tab = (id, label) => (
     <button
@@ -115,7 +118,7 @@ export default function SupplierIntelPanel({ suppliers, selectedId, onSelect }) 
           </svg>
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={handleSearchChange}
             placeholder="Search suppliers…"
             style={{
               width: "100%",
@@ -141,51 +144,65 @@ export default function SupplierIntelPanel({ suppliers, selectedId, onSelect }) 
           const pct = Math.min(100, Math.round(((s.emissions_30d_kg || 0) / maxE) * 100));
           const active = selectedId === s.supplier_id;
           return (
-            <button
+            <SupplierCard
               key={s.supplier_id}
-              type="button"
-              className={`cp-supplier-card${active ? " cp-supplier-card--active" : ""}`}
-              onClick={() => onSelect?.(s.supplier_id)}
-              style={{
-                width: "calc(100% - 16px)",
-                margin: "2px 8px",
-                textAlign: "left",
-                padding: "10px 12px",
-                borderRadius: "var(--radius-md)",
-                border: `1px solid ${active ? "var(--border-default)" : "transparent"}`,
-                background: active ? "var(--bg-selected)" : "transparent",
-                color: "var(--text-primary)",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", lineHeight: 1.3 }}>{(s.name || "").slice(0, 34)}</div>
-                <RiskBadge tier={s.risk_tier} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                  <span aria-hidden>{flagEmoji(s.country)}</span> {s.country}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{(s.risk_tier || "LOW").toUpperCase()}</div>
-              </div>
-              <div
-                style={{
-                  marginTop: 8,
-                  height: 3,
-                  borderRadius: "var(--radius-full)",
-                  background: "var(--gray-200)",
-                  overflow: "hidden",
-                }}
-              >
-                <div style={{ width: `${pct}%`, height: "100%", background: tierBarColor(s.risk_tier), borderRadius: "var(--radius-full)" }} />
-              </div>
-              <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-secondary)" }}>
-                30d: {formatKg(s.emissions_30d_kg || 0)} CO₂e
-              </div>
-            </button>
+              supplier={s}
+              pct={pct}
+              active={active}
+              onSelect={handleSelect}
+            />
           );
         })}
       </div>
     </div>
   );
 }
+
+const SupplierCard = memo(function SupplierCard({ supplier, pct, active, onSelect }) {
+  const handleClick = useCallback(() => onSelect?.(supplier.supplier_id), [onSelect, supplier.supplier_id]);
+  return (
+    <button
+      type="button"
+      className={`cp-supplier-card${active ? " cp-supplier-card--active" : ""}`}
+      onClick={handleClick}
+      style={{
+        width: "calc(100% - 16px)",
+        margin: "2px 8px",
+        textAlign: "left",
+        padding: "10px 12px",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${active ? "var(--border-default)" : "transparent"}`,
+        background: active ? "var(--bg-selected)" : "transparent",
+        color: "var(--text-primary)",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", lineHeight: 1.3 }}>
+          {(supplier.name || "").slice(0, 34)}
+        </div>
+        <RiskBadge tier={supplier.risk_tier} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          <span aria-hidden>{flagEmoji(supplier.country)}</span> {supplier.country}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{(supplier.risk_tier || "LOW").toUpperCase()}</div>
+      </div>
+      <div
+        style={{
+          marginTop: 8,
+          height: 3,
+          borderRadius: "var(--radius-full)",
+          background: "var(--gray-200)",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ width: `${pct}%`, height: "100%", background: tierBarColor(supplier.risk_tier), borderRadius: "var(--radius-full)" }} />
+      </div>
+      <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-secondary)" }}>
+        30d: {formatKg(supplier.emissions_30d_kg || 0)} CO₂e
+      </div>
+    </button>
+  );
+});

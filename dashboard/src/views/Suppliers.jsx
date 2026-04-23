@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSuppliers } from "../hooks/useSuppliers.js";
 import RiskBadge from "../components/shared/RiskBadge.jsx";
 
@@ -22,6 +22,9 @@ function tierBarColor(tier) {
 
 export default function Suppliers() {
   const [page, setPage] = useState(0);
+  const [compareIds, setCompareIds] = useState([]);
+  const [showBenchmarks, setShowBenchmarks] = useState(false);
+  const [benchmarks, setBenchmarks] = useState([]);
   const { data, isLoading } = useSuppliers({ limit: 25, offset: page * 25, sort_by: "risk_score", order: "desc" });
   const maxE = useMemo(() => {
     const rows = data?.items || [];
@@ -29,6 +32,19 @@ export default function Suppliers() {
   }, [data?.items]);
   const items = data?.items || [];
   const total = data?.total ?? "—";
+  const allSuppliers = data?.items || [];
+
+  useEffect(() => {
+    if (!showBenchmarks) return;
+    fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/v1/suppliers/benchmarks`)
+      .then((r) => r.json())
+      .then((d) => setBenchmarks(d?.benchmarks || []))
+      .catch(() => setBenchmarks([]));
+  }, [showBenchmarks]);
+
+  const toggleCompare = (id) => {
+    setCompareIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]));
+  };
 
   return (
     <div
@@ -71,6 +87,34 @@ export default function Suppliers() {
       </div>
 
       <div className="panel" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)", border: "1px solid var(--border-default)" }}>
+        <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-subtle)", display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => setShowBenchmarks(false)} style={{ ...btn, background: !showBenchmarks ? "var(--bg-selected)" : "var(--bg-surface)" }}>
+            Table
+          </button>
+          <button type="button" onClick={() => setShowBenchmarks(true)} style={{ ...btn, background: showBenchmarks ? "var(--bg-selected)" : "var(--bg-surface)" }}>
+            Benchmarks
+          </button>
+        </div>
+        {showBenchmarks ? (
+          <div style={{ padding: 16 }}>
+            {(benchmarks || []).slice(0, 30).map((b) => {
+              const ratio = Number(b.intensity_ratio || 0);
+              const pct = Math.min(100, Math.max(0, ratio * 50));
+              const color = ratio >= 1.5 ? "var(--risk-critical)" : ratio > 1.1 ? "var(--risk-medium)" : "var(--green-500)";
+              return (
+                <div key={`${b.supplier_id}-${b.product_category}`} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span>{b.supplier_name}</span>
+                    <span style={{ color }}>{ratio.toFixed(2)}x industry avg</span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 999, background: "var(--gray-200)", overflow: "hidden", marginTop: 4 }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
         <div style={{ overflow: "auto" }}>
           <table className="cp-suppliers-table" style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-sans)", fontSize: 13 }}>
             <thead>
@@ -215,23 +259,14 @@ export default function Suppliers() {
                       </div>
                     </td>
                     <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                      <button
-                        type="button"
-                        onClick={() => {}}
-                        style={{
-                          background: "var(--bg-surface)",
-                          border: "1px solid var(--border-default)",
-                          borderRadius: "var(--radius-md)",
-                          padding: "5px 10px",
-                          fontSize: 12,
-                          fontWeight: 500,
-                          color: "var(--text-secondary)",
-                          cursor: "pointer",
-                          fontFamily: "var(--font-sans)",
-                        }}
-                      >
-                        Inspect
-                      </button>
+                      <div style={{ display: "inline-flex", gap: 6 }}>
+                        <button type="button" onClick={() => {}} style={miniBtn}>
+                          Inspect
+                        </button>
+                        <button type="button" onClick={() => toggleCompare(s.supplier_id)} style={miniBtn}>
+                          Compare
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -239,6 +274,7 @@ export default function Suppliers() {
             </tbody>
           </table>
         </div>
+        )}
         {isLoading ? <div style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 13 }}>Loading…</div> : null}
         <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}>
           <button type="button" onClick={() => setPage((p) => Math.max(0, p - 1))} style={btn}>
@@ -249,6 +285,34 @@ export default function Suppliers() {
           </button>
         </div>
       </div>
+
+      {compareIds.length === 2 ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0", marginTop: "24px", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)", overflow: "hidden", background: "var(--bg-surface)" }}>
+          {compareIds.map((id, idx) => {
+            const sup = allSuppliers.find((s) => s.supplier_id === id);
+            if (!sup) return null;
+            return (
+              <div key={id} style={{ padding: "24px", borderRight: idx === 0 ? "1px solid var(--border-default)" : "none" }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: "15px", fontWeight: "600" }}>{sup.name}</h3>
+                {[
+                  ["Country", sup.country],
+                  ["Risk tier", sup.risk_tier],
+                  ["Risk score", sup.risk_score?.toFixed(2)],
+                  ["30d emissions", `${(sup.emissions_30d_kg || 0).toFixed(0)} kg`],
+                  ["Trend", sup.emissions_trend],
+                  ["Industry", sup.industry],
+                  ["Tier", sup.tier],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: "13px" }}>
+                    <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
+                    <span style={{ color: "var(--text-primary)", fontWeight: "500" }}>{value || "—"}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -263,4 +327,16 @@ const btn = {
   background: "var(--bg-surface)",
   color: "var(--text-secondary)",
   cursor: "pointer",
+};
+
+const miniBtn = {
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "var(--radius-md)",
+  padding: "5px 10px",
+  fontSize: 12,
+  fontWeight: 500,
+  color: "var(--text-secondary)",
+  cursor: "pointer",
+  fontFamily: "var(--font-sans)",
 };

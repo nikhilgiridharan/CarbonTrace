@@ -2,25 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import DataFreshBadge from "../shared/DataFreshBadge.jsx";
 import { formatKg } from "../../utils/formatters.js";
 import { apiBaseUrl } from "../../utils/constants.js";
+import { cachedFetch } from "../../utils/apiCache.js";
 
 export default function Topbar({ title, summary, pipelineMessage }) {
   const [anomalyCount, setAnomalyCount] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${apiBaseUrl()}/pipeline/alerts?severity=HIGH&limit=100`);
-        const data = await res.json();
+        const data = await cachedFetch(`${apiBaseUrl()}/pipeline/alerts?severity=HIGH&limit=100`, 10_000);
         const count = Array.isArray(data) ? data.length : data?.alerts?.length ?? data?.total ?? 0;
-        if (!cancelled) setAnomalyCount(Number(count) || 0);
+        setAnomalyCount(Number(count) || 0);
       } catch {
-        if (!cancelled) setAnomalyCount(0);
+        setAnomalyCount(0);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   const ticker = useMemo(() => {

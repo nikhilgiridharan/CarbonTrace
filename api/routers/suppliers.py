@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import psycopg2.extras
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from db.connection import get_conn
 from models import schemas
@@ -81,8 +81,63 @@ def list_suppliers(
     return {"items": [i.model_dump() for i in items], "total": total, "limit": limit, "offset": offset}
 
 
+@router.get("/benchmarks")
+async def get_supplier_benchmarks():
+    with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            WITH category_benchmarks AS (
+                SELECT
+                    k.category AS product_category,
+                    AVG(s.carbon_intensity) as category_avg_intensity,
+                    STDDEV(s.carbon_intensity) as category_std_intensity,
+                    COUNT(DISTINCT s.supplier_id) as supplier_count
+                FROM shipment_silver_summary s
+                JOIN skus k ON k.sku_id = s.sku_id
+                WHERE s.carbon_intensity > 0
+                  AND s.event_at > NOW() - INTERVAL '30 days'
+                GROUP BY k.category
+            ),
+            supplier_intensity AS (
+                SELECT
+                    s.supplier_id,
+                    sup.name as supplier_name,
+                    s.supplier_country as supplier_country,
+                    k.category AS product_category,
+                    AVG(s.carbon_intensity) as supplier_avg_intensity,
+                    COUNT(*) as shipment_count
+                FROM shipment_silver_summary s
+                JOIN suppliers sup ON sup.supplier_id = s.supplier_id
+                JOIN skus k ON k.sku_id = s.sku_id
+                WHERE s.carbon_intensity > 0
+                  AND s.event_at > NOW() - INTERVAL '30 days'
+                GROUP BY s.supplier_id, sup.name, s.supplier_country, k.category
+            )
+            SELECT
+                si.supplier_id,
+                si.supplier_name,
+                si.supplier_country,
+                si.product_category,
+                ROUND(si.supplier_avg_intensity::numeric, 4) as supplier_intensity,
+                ROUND(cb.category_avg_intensity::numeric, 4) as category_avg_intensity,
+                ROUND((si.supplier_avg_intensity / NULLIF(cb.category_avg_intensity, 0))::numeric, 2) as intensity_ratio,
+                ROUND(((si.supplier_avg_intensity - cb.category_avg_intensity)
+                    / NULLIF(cb.category_avg_intensity, 0) * 100)::numeric, 1) as pct_above_average,
+                cb.supplier_count as peers_in_category,
+                si.shipment_count
+            FROM supplier_intensity si
+            JOIN category_benchmarks cb ON si.product_category = cb.product_category
+            ORDER BY intensity_ratio DESC NULLS LAST
+            LIMIT 100
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    return {"benchmarks": rows, "count": len(rows)}
+
+
 @router.get("/map-data", response_model=list[schemas.MapSupplier])
-def map_data() -> list[schemas.MapSupplier]:
+def map_data(response: Response) -> list[schemas.MapSupplier]:
+    response.headers["Cache-Control"] = "public, max-age=120"
     start = datetime.now(timezone.utc) - timedelta(days=30)
     with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -243,3 +298,5 @@ def supplier_routes(supplier_id: str) -> list[schemas.RouteSegment]:
             )
         )
     return out
+
+

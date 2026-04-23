@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { relTime } from "../../utils/formatters.js";
 import axios from "axios";
 import { apiBaseUrl } from "../../utils/constants.js";
+import { cachedFetch, invalidateCache } from "../../utils/apiCache.js";
 
 const client = axios.create({ baseURL: apiBaseUrl() });
 
@@ -48,7 +49,12 @@ export default function AlertFeed({ liveAlerts }) {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
-    client.get("/pipeline/alerts?limit=30").then((r) => setItems(r.data));
+    cachedFetch(`${apiBaseUrl()}/pipeline/alerts?limit=30`, 10_000)
+      .then((data) => setItems(data))
+      .catch(() => {
+        /* ignore failed request */
+      });
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -62,10 +68,11 @@ export default function AlertFeed({ liveAlerts }) {
     [items, acked],
   );
 
-  async function acknowledge(id) {
+  const acknowledge = useCallback(async (id) => {
     await client.post(`/pipeline/alerts/${id}/acknowledge`);
     setAcked((s) => new Set(s).add(id));
-  }
+    invalidateCache("/pipeline/alerts");
+  }, []);
 
   return (
     <div

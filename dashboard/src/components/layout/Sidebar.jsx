@@ -2,9 +2,12 @@ import { NavLink, useNavigate } from "react-router-dom";
 
 const nav = [
   { to: "/dashboard", label: "Overview" },
-  { to: "/dashboard/suppliers", label: "Suppliers" },
-  { to: "/dashboard/skus", label: "SKU Trace" },
-  { to: "/dashboard/forecast", label: "Forecast" },
+  { to: "/ask", label: "Ask Verdant", icon: "✦" },
+  { to: "/suppliers", label: "Suppliers" },
+  { to: "/skus", label: "SKU Trace" },
+  { to: "/network", label: "Network", icon: "◉" },
+  { to: "/scenarios", label: "Scenarios", icon: "≡" },
+  { to: "/forecast", label: "Forecast" },
 ];
 
 const navLabel = {
@@ -72,10 +75,15 @@ export default function Sidebar({ pipelineOk }) {
             end={n.to === "/dashboard"}
             className={({ isActive }) => `cp-nav-link${isActive ? " cp-nav-link--active" : ""}`}
           >
+            {n.icon ? <span aria-hidden>{n.icon}</span> : null}
             <span>{n.label}</span>
           </NavLink>
         ))}
         <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 8px" }} />
+        <NavLink to="/settings" className={({ isActive }) => `cp-nav-link${isActive ? " cp-nav-link--active" : ""}`}>
+          <span aria-hidden>⚙</span>
+          <span>Settings</span>
+        </NavLink>
         <a
           href="https://github.com/nikhilgiridharan"
           target="_blank"

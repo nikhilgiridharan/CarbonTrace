@@ -9,11 +9,15 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 import bootstrap
 from db.connection import get_conn
 from models import schemas
 from routers import emissions, forecasts, pipeline, skus, suppliers
+from routers.digest import router as digest_router
+from routers.nl_query import router as nl_router
+from routers.report import router as report_router
 
 API_PREFIX = "/api/v1"
 
@@ -57,6 +61,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/health", response_model=schemas.HealthResponse)
@@ -105,6 +110,9 @@ app.include_router(suppliers.router, prefix=API_PREFIX)
 app.include_router(skus.router, prefix=API_PREFIX)
 app.include_router(forecasts.router, prefix=API_PREFIX)
 app.include_router(pipeline.router, prefix=API_PREFIX)
+app.include_router(nl_router, prefix=f"{API_PREFIX}/nl", tags=["Natural Language Query"])
+app.include_router(report_router, prefix=f"{API_PREFIX}/report", tags=["Report"])
+app.include_router(digest_router, prefix=f"{API_PREFIX}/digest", tags=["Digest"])
 
 
 def _fetch_unacked_alerts(limit: int = 20) -> list[dict]:

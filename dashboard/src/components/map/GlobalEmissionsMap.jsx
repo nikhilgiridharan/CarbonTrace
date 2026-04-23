@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Map, { Layer, Source } from "react-map-gl";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -26,6 +26,17 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
     zoom: 1.6,
     pitch: 0,
   });
+  const [mode, setMode] = useState("globe");
+  const [countryStats, setCountryStats] = useState([]);
+  const [hoverCountry, setHoverCountry] = useState(null);
+
+  useEffect(() => {
+    if (mode !== "heatmap") return;
+    fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/v1/emissions/by-country-detailed`)
+      .then((r) => r.json())
+      .then((d) => setCountryStats(d?.countries || []))
+      .catch(() => setCountryStats([]));
+  }, [mode]);
 
   const geojson = useMemo(() => {
     return {
@@ -50,10 +61,44 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
 
   const onClick = useCallback(
     (e) => {
+      if (mode === "heatmap") return;
       const f = e.features?.[0];
       if (f?.properties?.id) onSelect?.(f.properties.id);
     },
-    [onSelect],
+    [onSelect, mode],
+  );
+  const onMove = useCallback((evt) => setViewState(evt.viewState), []);
+  const resetView = useCallback(() => {
+    setViewState((vs) => ({ ...vs, longitude: 10, latitude: 25, zoom: 1.6 }));
+  }, []);
+  const countryLookup = useMemo(() => {
+    const m = {};
+    for (const c of countryStats) m[c.country] = c;
+    return m;
+  }, [countryStats]);
+  const countryEmissionExpr = useMemo(() => {
+    const expr = ["match", ["get", "iso_3166_1_alpha_2"]];
+    for (const c of countryStats) {
+      expr.push(c.country, Number(c.total_emissions_kg || 0));
+    }
+    expr.push(0);
+    return expr;
+  }, [countryStats]);
+  const onMapMove = useCallback(
+    (evt) => {
+      setViewState(evt.viewState);
+      if (mode !== "heatmap") return;
+      const f = evt.target.queryRenderedFeatures(evt.point, { layers: ["countries-fill"] })?.[0];
+      if (!f) {
+        setHoverCountry(null);
+        return;
+      }
+      const iso = f.properties?.iso_3166_1_alpha_2;
+      const stats = countryLookup[iso];
+      if (stats) setHoverCountry({ iso, ...stats });
+      else setHoverCountry(null);
+    },
+    [mode, countryLookup],
   );
 
   if (!MAPBOX_TOKEN) {
@@ -82,27 +127,56 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
       <Map
         mapboxAccessToken={MAPBOX_TOKEN}
         {...viewState}
-        onMove={(evt) => setViewState(evt.viewState)}
+        onMove={onMapMove}
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/light-v11"
-        interactiveLayerIds={["suppliers-circle"]}
+        interactiveLayerIds={mode === "heatmap" ? ["countries-fill"] : ["suppliers-circle"]}
         onClick={onClick}
+        renderWorldCopies={false}
+        maxTileCacheSize={50}
+        trackResize={false}
       >
-        <Source id="suppliers" type="geojson" data={geojson}>
-          <Layer
-            id="suppliers-circle"
-            type="circle"
-            paint={{
-              "circle-radius": ["get", "r"],
-              "circle-color": ["get", "color"],
-              "circle-opacity": 0.85,
-              "circle-stroke-width": 1.5,
-              "circle-stroke-color": "#FFFFFF",
-            }}
-          />
-        </Source>
+        {mode === "globe" ? (
+          <Source id="suppliers" type="geojson" data={geojson}>
+            <Layer
+              id="suppliers-circle"
+              type="circle"
+              paint={{
+                "circle-radius": ["get", "r"],
+                "circle-color": ["get", "color"],
+                "circle-opacity": 0.85,
+                "circle-stroke-width": 1.5,
+                "circle-stroke-color": "#FFFFFF",
+              }}
+            />
+          </Source>
+        ) : (
+          <Source id="countries" type="vector" url="mapbox://mapbox.country-boundaries-v1">
+            <Layer
+              id="countries-fill"
+              type="fill"
+              source-layer="country_boundaries"
+              paint={{
+                "fill-color": [
+                  "interpolate",
+                  ["linear"],
+                  countryEmissionExpr,
+                  0,
+                  "#dcf0d1",
+                  10000,
+                  "#fbbf24",
+                  50000,
+                  "#f97316",
+                  100000,
+                  "#b91c1c",
+                ],
+                "fill-opacity": 0.55,
+              }}
+            />
+          </Source>
+        )}
       </Map>
-      {selected ? (
+      {mode === "globe" && selected ? (
         <div
           style={{
             position: "absolute",
@@ -127,6 +201,27 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
           </div>
         </div>
       ) : null}
+      {mode === "heatmap" && hoverCountry ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 16,
+            bottom: 16,
+            maxWidth: 280,
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "var(--shadow-md)",
+            padding: "10px 14px",
+            fontFamily: "var(--font-sans)",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>{hoverCountry.iso}</div>
+          <div style={{ marginTop: 4 }}>Emissions: {(hoverCountry.total_emissions_kg || 0).toLocaleString()} kg</div>
+          <div>Suppliers: {(hoverCountry.supplier_count || 0).toLocaleString()}</div>
+        </div>
+      ) : null}
       <div
         style={{
           position: "absolute",
@@ -138,7 +233,43 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
       >
         <button
           type="button"
-          onClick={() => setViewState((vs) => ({ ...vs, longitude: 10, latitude: 25, zoom: 1.6 }))}
+          onClick={() => setMode("globe")}
+          style={{
+            fontFamily: "var(--font-sans)",
+            fontSize: 12,
+            fontWeight: 500,
+            color: mode === "globe" ? "var(--text-inverse)" : "var(--text-secondary)",
+            padding: "6px 10px",
+            cursor: "pointer",
+            background: mode === "globe" ? "var(--green-500)" : "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          Globe
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("heatmap")}
+          style={{
+            fontFamily: "var(--font-sans)",
+            fontSize: 12,
+            fontWeight: 500,
+            color: mode === "heatmap" ? "var(--text-inverse)" : "var(--text-secondary)",
+            padding: "6px 10px",
+            cursor: "pointer",
+            background: mode === "heatmap" ? "var(--green-500)" : "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          Heatmap
+        </button>
+        <button
+          type="button"
+          onClick={resetView}
           style={{
             fontFamily: "var(--font-sans)",
             fontSize: 12,

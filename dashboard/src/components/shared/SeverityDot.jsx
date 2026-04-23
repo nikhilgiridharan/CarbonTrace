@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 const map = {
   LOW: "var(--risk-low)",
   MEDIUM: "var(--risk-medium)",
@@ -5,7 +7,7 @@ const map = {
   CRITICAL: "var(--risk-critical)",
 };
 
-export default function SeverityDot({ severity }) {
+function SeverityDot({ severity }) {
   const s = (severity || "LOW").toUpperCase();
   return (
     <span
@@ -20,3 +22,5 @@ export default function SeverityDot({ severity }) {
     />
   );
 }
+
+export default memo(SeverityDot);

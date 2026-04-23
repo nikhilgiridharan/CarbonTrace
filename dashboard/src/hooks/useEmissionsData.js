@@ -1,21 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import axios from "axios";
 import { apiBaseUrl } from "../utils/constants.js";
-
-const client = axios.create({ baseURL: apiBaseUrl() });
+import { cachedFetch } from "../utils/apiCache.js";
 
 export function useEmissionsSummary() {
   return useQuery({
     queryKey: ["emissions", "summary"],
-    queryFn: async () => (await client.get("/emissions/summary")).data,
-    refetchInterval: 60_000,
+    queryFn: async () => cachedFetch(`${apiBaseUrl()}/emissions/summary`, 60_000),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   });
 }
 
 export function useMapData() {
   return useQuery({
     queryKey: ["suppliers", "map"],
-    queryFn: async () => (await client.get("/suppliers/map-data")).data,
-    refetchInterval: 120_000,
+    queryFn: async () => cachedFetch(`${apiBaseUrl()}/suppliers/map-data`, 120_000),
+    staleTime: 180_000,
+    refetchInterval: 300_000,
   });
 }

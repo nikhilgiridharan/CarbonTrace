@@ -58,7 +58,14 @@ export default function SKUAttribution() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    client.get(`/skus/${encodeURIComponent(sku)}/sankey`).then((r) => setData(r.data));
+    const controller = new AbortController();
+    client
+      .get(`/skus/${encodeURIComponent(sku)}/sankey`, { signal: controller.signal })
+      .then((r) => setData(r.data))
+      .catch(() => {
+        /* ignore cancelled/failed request */
+      });
+    return () => controller.abort();
   }, [sku]);
 
   const { nodes, links } = useMemo(() => sankeyTopSuppliers(data, 10), [data]);

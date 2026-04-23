@@ -18,6 +18,17 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       outDir: "dist",
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "react-vendor": ["react", "react-dom", "react-router-dom"],
+            "map-vendor": ["mapbox-gl", "react-map-gl"],
+            "chart-vendor": ["recharts"],
+            "data-vendor": ["d3-sankey"],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 600,
     },
     server: {
       port,

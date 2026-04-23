@@ -12,7 +12,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.18.0",
     "axios": "^1.6.7",
-    "clsx": "^2.1.0",
+    "d3": "^7.9.0",
     "d3-sankey": "^0.12.3",
     "date-fns": "^3.3.1",
     "mapbox-gl": "^3.1.0",

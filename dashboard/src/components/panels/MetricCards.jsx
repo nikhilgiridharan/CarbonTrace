@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 
 function TrendLine({ pct }) {
   if (pct == null || Number.isNaN(pct)) {
@@ -18,7 +18,7 @@ function TrendLine({ pct }) {
   );
 }
 
-export default function MetricCards({ summary }) {
+function MetricCards({ summary }) {
   const yoy = summary?.yoy_change_pct;
   const cards = useMemo(
     () => [
@@ -96,3 +96,5 @@ export default function MetricCards({ summary }) {
     </div>
   );
 }
+
+export default memo(MetricCards);

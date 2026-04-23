@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 
 function stateFromPipeline(data) {
   const hb = data?.components?.find?.((c) => c.name === "api")?.last_heartbeat;
@@ -55,7 +55,7 @@ const pillBase = {
   border: "1px solid",
 };
 
-export default function DataFreshBadge({ pipelineMessage }) {
+function DataFreshBadge({ pipelineMessage }) {
   const st = useMemo(() => {
     if (pipelineMessage?.type === "pipeline_status") {
       return stateFromPipeline({ components: pipelineMessage.data });
@@ -94,3 +94,5 @@ export default function DataFreshBadge({ pipelineMessage }) {
     </div>
   );
 }
+
+export default memo(DataFreshBadge);
