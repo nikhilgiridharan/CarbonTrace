@@ -8,7 +8,6 @@ import Suppliers from "./views/Suppliers.jsx";
 import SKUAttribution from "./views/SKUAttribution.jsx";
 import Forecast from "./views/Forecast.jsx";
 import GoFundMe from "./views/GoFundMe.jsx";
-import Landing from "./pages/Landing.jsx";
 import Introduction from "./views/Introduction.jsx";
 import { useEmissionsSummary } from "./hooks/useEmissionsData.js";
 import { wsAlertsUrl, wsPipelineUrl } from "./utils/constants.js";
@@ -92,7 +91,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Introduction />} />
         <Route path="/introduction" element={<Introduction />} />
         <Route path="/dashboard/*" element={<Shell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
