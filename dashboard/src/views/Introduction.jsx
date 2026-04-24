@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 export default function Introduction() {
@@ -7,6 +7,210 @@ export default function Introduction() {
   const wingTopRef = useRef(null)
   const wingBottomRef = useRef(null)
   const animRef = useRef(null)
+
+  const W = typeof window !== 'undefined' ? window.innerWidth : 1440
+  const H = typeof window !== 'undefined' ? window.innerHeight : 900
+
+  // ── Time, weather, and season detection ──────────────
+  const getSkyColors = () => {
+    const hour = new Date().getHours()
+    const month = new Date().getMonth() // 0=Jan, 11=Dec
+
+    // Season: 0=winter, 1=spring, 2=summer, 3=fall
+    const season =
+      month <= 1 || month === 11 ? 0 // winter: Dec-Feb
+      : month <= 4 ? 1 // spring: Mar-May
+      : month <= 7 ? 2 // summer: Jun-Aug
+      : 3 // fall: Sep-Nov
+
+    // Time of day
+    const isDawn = hour >= 5 && hour < 7
+    const isMorning = hour >= 7 && hour < 11
+    const isNoon = hour >= 11 && hour < 14
+    const isAfternoon = hour >= 14 && hour < 17
+    const isDusk = hour >= 17 && hour < 20
+    const isNight = hour >= 20 || hour < 5
+
+    // Sky top color, sky bottom color, ambient light
+    let skyTop
+    let skyBottom
+    let ambientOpacity
+    let fogColor
+    let foliageTop
+    let foliageBright
+    let lakeColor
+    let reflectionColor
+    let sunMoonVisible
+
+    if (isNight) {
+      skyTop = '#010810'
+      skyBottom = '#050f08'
+      ambientOpacity = 0.0
+      fogColor = '#0a1a10'
+      foliageTop = '#082010'
+      foliageBright = '#0f3018'
+      lakeColor = '#071520'
+      reflectionColor = '#1a3a5c'
+      sunMoonVisible = 'moon'
+    } else if (isDawn) {
+      skyTop = '#1a0a2e'
+      skyBottom = '#8b3a1a'
+      ambientOpacity = 0.15
+      fogColor = '#c4783a'
+      foliageTop = '#1a3010'
+      foliageBright = '#2a5020'
+      lakeColor = '#1a3a5c'
+      reflectionColor = '#c4783a'
+      sunMoonVisible = 'sun-low'
+    } else if (isMorning) {
+      skyTop = '#1a3a6e'
+      skyBottom = '#4a8a4a'
+      ambientOpacity = 0.25
+      fogColor = '#a8d4b0'
+      foliageTop = '#1a5228'
+      foliageBright = '#3da852'
+      lakeColor = '#1e6b8a'
+      reflectionColor = '#7dd3fc'
+      sunMoonVisible = 'sun-mid'
+    } else if (isNoon) {
+      skyTop = '#0d2e1a'
+      skyBottom = '#1a5228'
+      ambientOpacity = 0.35
+      fogColor = '#c8e6d0'
+      foliageTop = '#1a5228'
+      foliageBright = '#4ade80'
+      lakeColor = '#1e6b8a'
+      reflectionColor = '#93c5fd'
+      sunMoonVisible = 'sun-high'
+    } else if (isAfternoon) {
+      skyTop = '#1a2e0d'
+      skyBottom = '#2a5020'
+      ambientOpacity = 0.28
+      fogColor = '#d4e8c0'
+      foliageTop = '#1a5228'
+      foliageBright = '#3da852'
+      lakeColor = '#1e5c78'
+      reflectionColor = '#7dd3fc'
+      sunMoonVisible = 'sun-mid'
+    } else if (isDusk) {
+      skyTop = '#1a0a0a'
+      skyBottom = '#7a3010'
+      ambientOpacity = 0.2
+      fogColor = '#e88040'
+      foliageTop = '#0f2a10'
+      foliageBright = '#1a4020'
+      lakeColor = '#1a2a3c'
+      reflectionColor = '#e88040'
+      sunMoonVisible = 'sun-low'
+    } else {
+      skyTop = '#010810'
+      skyBottom = '#050f08'
+      ambientOpacity = 0.0
+      fogColor = '#0a1a10'
+      foliageTop = '#082010'
+      foliageBright = '#0f3018'
+      lakeColor = '#071520'
+      reflectionColor = '#1a3a5c'
+      sunMoonVisible = 'moon'
+    }
+
+    // Season foliage color override
+    const seasonFoliage = {
+      0: { primary: '#1a3020', secondary: '#243828', accent: '#2a4030' }, // winter — dark muted
+      1: { primary: '#22c55e', secondary: '#16a34a', accent: '#86efac' }, // spring — bright green
+      2: { primary: '#15803d', secondary: '#166534', accent: '#4ade80' }, // summer — deep green
+      3: { primary: '#854d0e', secondary: '#92400e', accent: '#fb923c' }, // fall — orange/brown
+    }
+
+    return {
+      skyTop,
+      skyBottom,
+      ambientOpacity,
+      fogColor,
+      foliageTop,
+      foliageBright,
+      lakeColor,
+      reflectionColor,
+      sunMoonVisible,
+      season,
+      seasonColors: seasonFoliage[season],
+      hour,
+      isDawn,
+      isMorning,
+      isNoon,
+      isAfternoon,
+      isDusk,
+      isNight,
+    }
+  }
+
+  const skyColors = getSkyColors()
+
+  // ── Weather detection via browser geolocation + Open-Meteo ──
+  const [weather, setWeather] = useState({
+    condition: 'clear', // clear | rain | snow | cloudy
+    intensity: 0, // 0-1
+  })
+
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude: lat, longitude: lon } = pos.coords
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=weathercode,precipitation&timezone=auto`
+          const res = await fetch(url)
+          const data = await res.json()
+          const code = data?.current?.weathercode ?? 0
+          const precip = data?.current?.precipitation ?? 0
+
+          let condition = 'clear'
+          let intensity = 0
+          if (code >= 71 && code <= 77) {
+            condition = 'snow'
+            intensity = Math.min(precip / 5, 1)
+          } else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+            condition = 'rain'
+            intensity = Math.min(precip / 10, 1)
+          } else if (code >= 1 && code <= 3) {
+            condition = 'cloudy'
+            intensity = code / 3
+          }
+          setWeather({ condition, intensity })
+        } catch {
+          /* ignore */
+        }
+      },
+      () => {},
+    )
+  }, [])
+
+  // ── Rain particle generation ──
+  const rainParticles = useMemo(() => {
+    if (weather.condition !== 'rain') return []
+    const count = Math.floor(80 + weather.intensity * 120)
+    return [...Array(count)].map((_, i) => ({
+      x: (i * 137.5) % W,
+      y: (i * 89.3) % H,
+      length: 12 + (i % 8) * 3,
+      speed: 0.8 + (i % 5) * 0.3,
+      opacity: 0.3 + (i % 4) * 0.1,
+      delay: i * 0.05,
+    }))
+  }, [weather, W, H])
+
+  // ── Snow particle generation ──
+  const snowParticles = useMemo(() => {
+    if (weather.condition !== 'snow') return []
+    const count = Math.floor(50 + weather.intensity * 80)
+    return [...Array(count)].map((_, i) => ({
+      x: (i * 97.3) % W,
+      y: (i * 61.7) % H,
+      r: 2 + (i % 4),
+      opacity: 0.4 + (i % 3) * 0.15,
+      drift: (i % 2 === 0 ? 1 : -1) * (8 + (i % 12)),
+    }))
+  }, [weather, W, H])
 
   useEffect(() => {
     const dove = doveRef.current
@@ -123,9 +327,6 @@ export default function Introduction() {
     }
   }, [])
 
-  const W = typeof window !== 'undefined' ? window.innerWidth : 1440
-  const H = typeof window !== 'undefined' ? window.innerHeight : 900
-
   return (
     <div style={{
       position: 'relative', width: '100%', height: '100vh',
@@ -139,10 +340,10 @@ export default function Introduction() {
         <defs>
           {/* Sky gradient */}
           <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#0a1628"/>
-            <stop offset="35%" stopColor="#0d2e1a"/>
-            <stop offset="65%" stopColor="#1a4a20"/>
-            <stop offset="100%" stopColor="#0f2d12"/>
+            <stop offset="0%" stopColor={skyColors.skyTop}/>
+            <stop offset="45%" stopColor={skyColors.skyBottom}/>
+            <stop offset="75%" stopColor={skyColors.seasonColors.primary} stopOpacity="0.8"/>
+            <stop offset="100%" stopColor="#0a1f0c"/>
           </linearGradient>
           {/* Sunlight beam through canopy */}
           <radialGradient id="sunbeam" cx="55%" cy="20%" r="60%">
@@ -209,19 +410,74 @@ export default function Introduction() {
 
         {/* ── SKY / ATMOSPHERE ── */}
         <rect x="0" y="0" width={W} height={H} fill="url(#sky)"/>
+
+        {/* Sun or Moon */}
+        {skyColors.sunMoonVisible === 'sun-high' && (
+          <g>
+            <circle cx={W * 0.72} cy={H * 0.12} r={W * 0.03} fill="#fde68a" opacity={0.9} filter="url(#blur2)"/>
+            <circle cx={W * 0.72} cy={H * 0.12} r={W * 0.022} fill="#fef3c7" opacity={1}/>
+            {[...Array(8)].map((_, i) => {
+              const angle = (i / 8) * Math.PI * 2
+              return (
+                <line
+                  key={i}
+                  x1={W * 0.72 + Math.cos(angle) * W * 0.026}
+                  y1={H * 0.12 + Math.sin(angle) * W * 0.026}
+                  x2={W * 0.72 + Math.cos(angle) * W * 0.042}
+                  y2={H * 0.12 + Math.sin(angle) * W * 0.042}
+                  stroke="#fde68a"
+                  strokeWidth={2}
+                  opacity={0.6}
+                  strokeLinecap="round"
+                />
+              )
+            })}
+          </g>
+        )}
+
+        {skyColors.sunMoonVisible === 'sun-mid' && (
+          <circle cx={W * 0.75} cy={H * 0.18} r={W * 0.025} fill="#fed7aa" opacity={0.8} filter="url(#blur2)"/>
+        )}
+
+        {skyColors.sunMoonVisible === 'sun-low' && (
+          <g>
+            <ellipse cx={W * 0.5} cy={H * 0.45} rx={W * 0.3} ry={H * 0.08} fill={skyColors.fogColor} opacity={0.25} filter="url(#blur4)"/>
+            <circle cx={W * 0.78} cy={H * 0.42} r={W * 0.028} fill="#fb923c" opacity={0.85} filter="url(#blur2)"/>
+          </g>
+        )}
+
+        {skyColors.sunMoonVisible === 'moon' && (
+          <g>
+            <circle cx={W * 0.8} cy={H * 0.12} r={W * 0.022} fill="#e2e8f0" opacity={0.9} filter="url(#blur2)"/>
+            <circle cx={W * 0.8} cy={H * 0.12} r={W * 0.018} fill="#f1f5f9" opacity={1}/>
+            <circle cx={W * 0.803} cy={H * 0.11} r={W * 0.005} fill="#cbd5e1" opacity={0.4}/>
+            {[...Array(35)].map((_, i) => (
+              <circle
+                key={i}
+                cx={20 + (i * 137.5) % (W * 0.9)}
+                cy={8 + (i * 89.3) % (H * 0.35)}
+                r={0.8 + (i % 3) * 0.5}
+                fill="white"
+                opacity={0.2 + (i % 5) * 0.08}
+              />
+            ))}
+          </g>
+        )}
+
         <rect x="0" y="0" width={W} height={H} fill="url(#sunbeam)"/>
 
-        {/* Stars / light particles in upper sky */}
-        {[...Array(40)].map((_, i) => (
-          <circle
-            key={i}
-            cx={20 + (i * 137.5) % (W * 0.9)}
-            cy={10 + (i * 89.3) % (H * 0.3)}
-            r={0.8 + (i % 3) * 0.4}
-            fill="white"
-            opacity={0.15 + (i % 5) * 0.06}
-          />
-        ))}
+        {/* Stars / light particles in upper sky (daytime) */}
+        {!skyColors.isNight &&
+          [...Array(40)].map((_, i) => (
+            <circle
+              key={i}
+              cx={20 + (i * 137.5) % (W * 0.9)}
+              cy={10 + (i * 89.3) % (H * 0.3)}
+              r={0.8 + (i % 3) * 0.4}
+              fill="white"
+              opacity={0.15 + (i % 5) * 0.06}
+            />
+          ))}
 
         {/* ── BACKGROUND FOREST (distant, blurred, dark) ── */}
         {/* Far background tree silhouettes */}
@@ -509,71 +765,109 @@ export default function Introduction() {
           )
         })}
 
-        {/* ── LAKE / WATER ── */}
-        {/* Lake base */}
-        <ellipse
-          cx={W*0.65} cy={H*0.80}
-          rx={W*0.38} ry={H*0.14}
-          fill="url(#lake)" opacity={0.95}
-        />
-        {/* Lake edge glow */}
-        <ellipse
-          cx={W*0.65} cy={H*0.80}
-          rx={W*0.38} ry={H*0.14}
-          fill="none" stroke="#38bdf8" strokeWidth={2} opacity={0.2}
-        />
-        {/* Forest reflection in lake */}
-        <ellipse
-          cx={W*0.65} cy={H*0.78}
-          rx={W*0.35} ry={H*0.08}
-          fill="url(#reflection)" opacity={0.6}
-        />
-        {/* Sky reflection stripe */}
-        <ellipse
-          cx={W*0.62} cy={H*0.77}
-          rx={W*0.18} ry={H*0.025}
-          fill="url(#lakeShimmer)" opacity={0.7}
-        />
+        {/* ── LAKE / WATER — grounded version ── */}
+
+        {/* Ground shadow under lake — makes it feel embedded */}
+        <ellipse cx={W * 0.65} cy={H * 0.84} rx={W * 0.42} ry={H * 0.06} fill="#050f07" opacity={0.5} />
+
+        {/* Muddy shoreline — earthy rim around water */}
+        <ellipse cx={W * 0.64} cy={H * 0.815} rx={W * 0.4} ry={H * 0.13} fill="#3d2a1a" opacity={0.7} />
+        {/* Inner shore mud — lighter */}
+        <ellipse cx={W * 0.64} cy={H * 0.812} rx={W * 0.385} ry={H * 0.122} fill="#5c3d22" opacity={0.5} />
+
+        {/* Wet sand / shore closest to water */}
+        <ellipse cx={W * 0.645} cy={H * 0.806} rx={W * 0.365} ry={H * 0.108} fill="#4a3518" opacity={0.45} />
+
+        {/* Main water body */}
+        <ellipse cx={W * 0.645} cy={H * 0.795} rx={W * 0.345} ry={H * 0.095} fill={skyColors.lakeColor} opacity={0.95} />
+
+        {/* Water depth gradient — darker in center */}
+        <ellipse cx={W * 0.645} cy={H * 0.792} rx={W * 0.22} ry={H * 0.058} fill="#0a2030" opacity={0.45} />
+
+        {/* Sky reflection on water surface */}
+        <ellipse cx={W * 0.6} cy={H * 0.782} rx={W * 0.16} ry={H * 0.024} fill={skyColors.reflectionColor} opacity={0.35} />
+
         {/* Shimmer lines */}
-        {[0,1,2,3,4].map(i => (
-          <path key={i}
-            d={`M ${W*(0.42+i*0.04)},${H*(0.78+i*0.005)} C ${W*(0.50+i*0.03)},${H*(0.776+i*0.005)} ${W*(0.58+i*0.02)},${H*(0.776+i*0.005)} ${W*(0.66+i*0.02)},${H*(0.78+i*0.005)}`}
-            fill="none" stroke="white" strokeWidth={1.2-i*0.15}
-            opacity={0.12-i*0.015} strokeLinecap="round"
+        {[0, 1, 2, 3, 4].map((i) => (
+          <path
+            key={i}
+            d={`M ${W * (0.38 + i * 0.04)},${H * (0.788 + i * 0.004)} C ${W * (0.48 + i * 0.03)},${H * (0.784 + i * 0.004)} ${W * (0.58 + i * 0.02)},${H * (0.784 + i * 0.004)} ${W * (0.68 + i * 0.02)},${H * (0.788 + i * 0.004)}`}
+            fill="none"
+            stroke="white"
+            strokeWidth={1.0 - i * 0.12}
+            opacity={0.08 - i * 0.01}
+            strokeLinecap="round"
           />
         ))}
-        {/* Ripple rings at drinking spot */}
-        {[1,2,3,4].map(i => (
-          <ellipse key={i}
-            cx={W*0.72} cy={H*0.755}
-            rx={W*0.014*i} ry={H*0.006*i}
-            fill="none" stroke="#7dd3fc"
-            strokeWidth={1.2-i*0.2}
-            opacity={0.18/i}
+
+        {/* Ripple rings at dove drinking spot */}
+        {[1, 2, 3, 4].map((i) => (
+          <ellipse
+            key={i}
+            cx={W * 0.6}
+            cy={H * 0.778}
+            rx={W * 0.013 * i}
+            ry={H * 0.005 * i}
+            fill="none"
+            stroke="#7dd3fc"
+            strokeWidth={1.0 - i * 0.18}
+            opacity={0.15 / i}
           />
         ))}
-        {/* Lily pads */}
+
+        {/* Lily pads — sitting on water naturally */}
         {[
-          [W*0.44, H*0.775, W*0.025, H*0.010, '#1a5228'],
-          [W*0.50, H*0.790, W*0.020, H*0.008, '#22703a'],
-          [W*0.82, H*0.780, W*0.022, H*0.009, '#1a5228'],
-          [W*0.78, H*0.795, W*0.016, H*0.007, '#15803d'],
-          [W*0.60, H*0.800, W*0.018, H*0.007, '#1e6b30'],
+          [W * 0.44, H * 0.79, W * 0.022, H * 0.008, '#1a5228'],
+          [W * 0.5, H * 0.8, W * 0.018, H * 0.007, '#22703a'],
+          [W * 0.82, H * 0.788, W * 0.02, H * 0.007, '#1a5228'],
+          [W * 0.77, H * 0.798, W * 0.015, H * 0.006, '#15803d'],
+          [W * 0.6, H * 0.806, W * 0.017, H * 0.006, '#1e6b30'],
+          [W * 0.56, H * 0.794, W * 0.013, H * 0.005, '#22703a'],
         ].map(([cx, cy, rx, ry, fill], i) => (
-          <ellipse key={i} cx={cx} cy={cy} rx={rx} ry={ry}
-            fill={fill} opacity={0.75}/>
+          <ellipse key={i} cx={cx} cy={cy} rx={rx} ry={ry} fill={fill} opacity={0.8} />
         ))}
-        {/* Lake shore reeds */}
-        {[W*0.38,W*0.42,W*0.46,W*0.82,W*0.86,W*0.90].map((x, i) => (
+
+        {/* Shore reeds — rooted at shoreline */}
+        {[W * 0.35, W * 0.39, W * 0.43, W * 0.85, W * 0.89, W * 0.93].map((x, i) => (
           <g key={i}>
-            <path d={`M ${x},${H*0.82} C ${x-5},${H*0.76} ${x+3},${H*0.72} ${x},${H*0.68}`}
-              fill="none" stroke="#2d6a38" strokeWidth={2.5} strokeLinecap="round"/>
-            <path d={`M ${x+8},${H*0.83} C ${x+5},${H*0.77} ${x+10},${H*0.73} ${x+8},${H*0.69}`}
-              fill="none" stroke="#245c30" strokeWidth={2} strokeLinecap="round"/>
-            <ellipse cx={x} cy={H*0.675} rx={4} ry={10}
-              fill="#4a7c52" opacity={0.7}/>
+            <path
+              d={`M ${x},${H * 0.84} C ${x - 4},${H * 0.8} ${x + 2},${H * 0.76} ${x},${H * 0.72}`}
+              fill="none"
+              stroke="#2d6a38"
+              strokeWidth={2.8}
+              strokeLinecap="round"
+            />
+            <path
+              d={`M ${x + 9},${H * 0.845} C ${x + 6},${H * 0.8} ${x + 10},${H * 0.76} ${x + 8},${H * 0.72}`}
+              fill="none"
+              stroke="#245c30"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+            />
+            <ellipse cx={x} cy={H * 0.718} rx={3.5} ry={9} fill="#4a7c52" opacity={0.75} />
+            <ellipse cx={x + 9} cy={H * 0.718} rx={3} ry={8} fill="#3d6b44" opacity={0.7} />
           </g>
         ))}
+
+        {/* Shore grass blending lake into ground */}
+        {[-60, -40, -20, 0, 20, 40, 60, 80, 100, 120].map((offset, i) => (
+          <g key={i} transform={`translate(${W * 0.645 + offset - 80},${H * 0.835})`}>
+            {[-12, -7, -3, 0, 3, 7, 12].map((angle, j) => (
+              <path
+                key={j}
+                d={`M 0,0 C ${angle * 0.4},${-H * 0.022} ${angle * 0.7},${-H * 0.042} ${angle},${-H * 0.058}`}
+                fill="none"
+                stroke={j % 2 === 0 ? '#2a5c30' : '#1e4a24'}
+                strokeWidth={1.8 + (j % 3) * 0.4}
+                strokeLinecap="round"
+                opacity={0.6 + i * 0.03}
+              />
+            ))}
+          </g>
+        ))}
+
+        {/* Water edge foam/highlight */}
+        <ellipse cx={W * 0.645} cy={H * 0.703} rx={W * 0.335} ry={H * 0.012} fill="white" opacity={0.04} />
 
         {/* ── ATMOSPHERIC LIGHT RAYS ── */}
         {[0,1,2,3].map(i => (
@@ -629,7 +923,91 @@ export default function Introduction() {
           <path d="M 12,12 L 10,22 M 10,22 L 5,27 M 10,22 L 13,27 M 10,22 L 16,27"
             fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round"/>
         </g>
+
+        {/* ── RAIN ── */}
+        {weather.condition === 'rain' && (
+          <g opacity={0.7}>
+            {rainParticles.map((p, i) => (
+              <line key={i} x1={p.x} y1={p.y} x2={p.x - 3} y2={p.y + p.length} stroke="#93c5fd" strokeWidth={0.8} opacity={p.opacity} />
+            ))}
+            {[...Array(6)].map((_, i) => (
+              <ellipse
+                key={`rp-${i}`}
+                cx={W * (0.44 + i * 0.06)}
+                cy={H * (0.785 + i * 0.004)}
+                rx={4 + i * 2}
+                ry={2 + i}
+                fill="none"
+                stroke="#93c5fd"
+                strokeWidth={0.8}
+                opacity={0.2}
+              />
+            ))}
+            <rect x="0" y="0" width={W} height={H} fill="#0a1a30" opacity={0.15} />
+          </g>
+        )}
+
+        {/* ── SNOW ── */}
+        {weather.condition === 'snow' && (
+          <g>
+            {snowParticles.map((p, i) => (
+              <circle key={i} cx={p.x} cy={p.y} r={p.r} fill="white" opacity={p.opacity} />
+            ))}
+            <ellipse cx={W * 0.5} cy={H * 0.88} rx={W * 0.6} ry={H * 0.04} fill="white" opacity={0.25} />
+            <ellipse cx={W * 0.18} cy={H * 0.265} rx={W * 0.08} ry={H * 0.012} fill="white" opacity={0.3} />
+            <ellipse cx={W * 0.22} cy={H * 0.262} rx={W * 0.05} ry={H * 0.01} fill="white" opacity={0.25} />
+            <rect x="0" y="0" width={W} height={H} fill="#e0e8f0" opacity={0.06} />
+          </g>
+        )}
+
+        {/* ── CLOUDS (overcast) ── */}
+        {weather.condition === 'cloudy' && (
+          <g opacity={weather.intensity * 0.6}>
+            {[
+              [W * 0.2, H * 0.08, W * 0.18, H * 0.06],
+              [W * 0.45, H * 0.06, W * 0.22, H * 0.07],
+              [W * 0.72, H * 0.09, W * 0.16, H * 0.055],
+              [W * 0.3, H * 0.12, W * 0.14, H * 0.05],
+              [W * 0.6, H * 0.11, W * 0.18, H * 0.058],
+            ].map(([cx, cy, rx, ry], i) => (
+              <ellipse key={i} cx={cx} cy={cy} rx={rx} ry={ry} fill="#6b7280" opacity={0.25} filter="url(#blur4)" />
+            ))}
+          </g>
+        )}
       </svg>
+
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '20px',
+          right: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          background: 'rgba(0,0,0,0.35)',
+          backdropFilter: 'blur(8px)',
+          borderRadius: '999px',
+          padding: '5px 12px',
+          zIndex: 20,
+        }}
+      >
+        <span style={{ fontSize: '14px' }}>
+          {skyColors.isNight ? '🌙' : skyColors.isDawn || skyColors.isDusk ? '🌅' : skyColors.isMorning ? '🌤' : skyColors.isNoon ? '☀️' : '🌇'}{' '}
+          {weather.condition === 'rain' ? '🌧' : weather.condition === 'snow' ? '❄️' : weather.condition === 'cloudy' ? '☁️' : ''}
+        </span>
+        <span
+          style={{
+            fontSize: '11px',
+            color: 'rgba(255,255,255,0.7)',
+            fontFamily: 'var(--font-sans)',
+            letterSpacing: '0.03em',
+          }}
+        >
+          {['Winter', 'Spring', 'Summer', 'Fall'][skyColors.season]}
+          {' · '}
+          {String(skyColors.hour).padStart(2, '0')}:00
+        </span>
+      </div>
 
       {/* Verdant title and Open button */}
       <div style={{
