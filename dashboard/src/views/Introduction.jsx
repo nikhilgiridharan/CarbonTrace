@@ -17,8 +17,8 @@ export default function Introduction() {
 
     const BRANCH_X = W * 0.18
     const BRANCH_Y = H * 0.28
-    const WATER_X = W * 0.72
-    const WATER_Y = H * 0.74
+    const WATER_X = W * 0.60
+    const WATER_Y = H * 0.775
 
     let state = 'perched'
     let t = 0
@@ -78,13 +78,21 @@ export default function Introduction() {
         dove.setAttribute('transform', `translate(${x},${y}) rotate(${angle})`)
 
       } else if (state === 'drinking') {
-        drinkPhase += 0.04 * drinkDir
+        drinkPhase += 0.035 * drinkDir
         if (drinkPhase > 1) drinkDir = -1
         if (drinkPhase < 0) drinkDir = 1
-        const dip = Math.sin(drinkPhase * Math.PI) * 35
-        setWings(Math.sin(wingAngle*0.18)*6)
+
+        // Bird stays on lily pad, tilts beak down to water
+        // Rotation swings from 0 (upright) to ~40deg (beak touching water)
+        const tiltAngle = Math.sin(drinkPhase * Math.PI) * 42
+
+        // Subtle body bob — very small vertical movement
+        const bodyBob = Math.sin(drinkPhase * Math.PI) * 4
+
+        setWings(Math.sin(wingAngle * 0.15) * 4)
+
         dove.setAttribute('transform',
-          `translate(${WATER_X},${WATER_Y - dip*0.25}) rotate(${dip*1.4}) scale(-1,1)`)
+          `translate(${WATER_X}, ${WATER_Y - bodyBob}) rotate(${tiltAngle})`)
 
       } else if (state === 'toTree') {
         t += 0.0045
@@ -101,7 +109,7 @@ export default function Introduction() {
         const fi = 0.4 + Math.sin(t*Math.PI)*0.6
         setWings(Math.sin(wingAngle)*22*fi)
         dove.setAttribute('transform',
-          `translate(${x},${y}) rotate(${angle}) scale(-1,1)`)
+          `translate(${x},${y}) rotate(${angle + 180})`)
       }
 
       animRef.current = requestAnimationFrame(animate)
