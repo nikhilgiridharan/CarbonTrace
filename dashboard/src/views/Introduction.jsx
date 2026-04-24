@@ -146,43 +146,45 @@ export default function Introduction() {
 
   const skyColors = getSkyColors()
 
-  // ── Weather detection via browser geolocation + Open-Meteo ──
+  // ── Weather via IP geolocation + Open-Meteo (no browser prompt) ──
   const [weather, setWeather] = useState({
     condition: 'clear', // clear | rain | snow | cloudy
     intensity: 0, // 0-1
   })
 
   useEffect(() => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude: lat, longitude: lon } = pos.coords
-          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=weathercode,precipitation&timezone=auto`
-          const res = await fetch(url)
-          const data = await res.json()
-          const code = data?.current?.weathercode ?? 0
-          const precip = data?.current?.precipitation ?? 0
+    // Use IP-based geolocation — no browser permission prompt
+    // Open-Meteo requires lat/lon so we get it silently from
+    // a free IP geolocation API first
+    fetch('https://ipapi.co/json/')
+      .then(r => r.json())
+      .then(async (geo) => {
+        const lat = geo.latitude
+        const lon = geo.longitude
+        if (!lat || !lon) return
 
-          let condition = 'clear'
-          let intensity = 0
-          if (code >= 71 && code <= 77) {
-            condition = 'snow'
-            intensity = Math.min(precip / 5, 1)
-          } else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
-            condition = 'rain'
-            intensity = Math.min(precip / 10, 1)
-          } else if (code >= 1 && code <= 3) {
-            condition = 'cloudy'
-            intensity = code / 3
-          }
-          setWeather({ condition, intensity })
-        } catch {
-          /* ignore */
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=weathercode,precipitation&timezone=auto`
+        const res = await fetch(url)
+        const data = await res.json()
+        const code = data?.current?.weathercode ?? 0
+        const precip = data?.current?.precipitation ?? 0
+
+        let condition = 'clear'
+        let intensity = 0
+        if (code >= 71 && code <= 77) {
+          condition = 'snow'
+          intensity = Math.min(precip / 5, 1)
+        } else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+          condition = 'rain'
+          intensity = Math.min(precip / 10, 1)
+        } else if (code >= 1 && code <= 3) {
+          condition = 'cloudy'
+          intensity = code / 3
         }
-      },
-      () => {},
-    )
+        setWeather({ condition, intensity })
+      })
+      .catch(() => {})
+    // silently fail — weather is decorative, not critical
   }, [])
 
   // ── Rain particle generation ──
@@ -255,7 +257,7 @@ export default function Introduction() {
       perchTimer = setTimeout(startFlyToWater, 2200)
     }
 
-    dove.setAttribute('transform', `translate(${BRANCH_X},${BRANCH_Y})`)
+    dove.setAttribute('transform', `translate(${BRANCH_X},${BRANCH_Y}) scale(-1,1)`)
     perchTimer = setTimeout(startFlyToWater, 1800)
 
     const animate = () => {
@@ -263,7 +265,8 @@ export default function Introduction() {
 
       if (state === 'perched') {
         setWings(Math.sin(wingAngle * 0.25) * 5)
-        dove.setAttribute('transform', `translate(${BRANCH_X},${BRANCH_Y}) scale(1,1)`)
+        // Perched facing left — beak toward center of scene
+        dove.setAttribute('transform', `translate(${BRANCH_X},${BRANCH_Y}) scale(-1,1)`)
 
       } else if (state === 'toWater') {
         t += 0.005
@@ -279,6 +282,7 @@ export default function Introduction() {
         const angle = Math.atan2(ny-y, nx-x)*180/Math.PI
         const fi = 0.4 + Math.sin(t*Math.PI)*0.6
         setWings(Math.sin(wingAngle)*22*fi)
+        // Facing right toward water — no flip needed
         dove.setAttribute('transform', `translate(${x},${y}) rotate(${angle})`)
 
       } else if (state === 'drinking') {
@@ -295,8 +299,9 @@ export default function Introduction() {
 
         setWings(Math.sin(wingAngle * 0.15) * 4)
 
+        // At water facing left — beak dips down toward water
         dove.setAttribute('transform',
-          `translate(${WATER_X}, ${WATER_Y - bodyBob}) rotate(${tiltAngle})`)
+          `translate(${WATER_X}, ${WATER_Y - bodyBob}) rotate(${-tiltAngle}) scale(-1,1)`)
 
       } else if (state === 'toTree') {
         t += 0.0045
@@ -312,8 +317,14 @@ export default function Introduction() {
         const angle = Math.atan2(ny-y, nx-x)*180/Math.PI
         const fi = 0.4 + Math.sin(t*Math.PI)*0.6
         setWings(Math.sin(wingAngle)*22*fi)
+        // Flying left — flip horizontally so beak faces left
+        // We rotate by the tangent angle then flip X axis
+        // The angle points left (negative x direction) so we
+        // subtract 180 to get the correct body orientation
+        // then scale(-1,1) flips the beak to face the direction
+        // of travel
         dove.setAttribute('transform',
-          `translate(${x},${y}) rotate(${angle + 180})`)
+          `translate(${x},${y}) rotate(${angle - 180}) scale(-1,1)`)
       }
 
       animRef.current = requestAnimationFrame(animate)
