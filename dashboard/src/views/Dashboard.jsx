@@ -10,19 +10,7 @@ export default function Dashboard({ liveAlerts }) {
   const { data: mapData } = useMapData();
   const [selected, setSelected] = useState(null);
   const handleSelectSupplier = useCallback((id) => setSelected(id), []);
-  const [digestEmail, setDigestEmail] = useState("");
-  const [digestSent, setDigestSent] = useState(false);
   const API = import.meta.env.VITE_API_BASE_URL || "";
-
-  const sendDigest = useCallback(async () => {
-    if (!digestEmail) return;
-    await fetch(`${API}/api/v1/digest/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: digestEmail }),
-    });
-    setDigestSent(true);
-  }, [API, digestEmail]);
 
   const suppliers = useMemo(() => mapData || [], [mapData]);
 
@@ -62,15 +50,6 @@ export default function Dashboard({ liveAlerts }) {
           >
             Download ESG Report (PDF)
           </a>
-          <input
-            value={digestEmail}
-            onChange={(e) => setDigestEmail(e.target.value)}
-            placeholder="email@company.com"
-            style={{ padding: "7px 10px", border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", fontSize: 12 }}
-          />
-          <button type="button" onClick={sendDigest} style={{ padding: "8px 12px", border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", background: "var(--bg-surface)", cursor: "pointer", fontSize: 12 }}>
-            {digestSent ? "Sent" : "Get weekly digest"}
-          </button>
         </div>
         <MetricCards summary={summary} />
       </div>
