@@ -77,6 +77,11 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
     return m;
   }, [countryStats]);
   const countryEmissionExpr = useMemo(() => {
+    // `match` requires label/output pairs before the default. An empty stats
+    // array produced `["match", [get], 0]` which is invalid and can blank the map.
+    if (!countryStats.length) {
+      return ["literal", 0];
+    }
     const expr = ["match", ["get", "iso_3166_1_alpha_2"]];
     for (const c of countryStats) {
       expr.push(c.country, Number(c.total_emissions_kg || 0));
@@ -88,7 +93,14 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
     (evt) => {
       setViewState(evt.viewState);
       if (mode !== "heatmap") return;
-      const f = evt.target.queryRenderedFeatures(evt.point, { layers: ["countries-fill"] })?.[0];
+      const map = evt.target;
+      if (!map.getLayer?.("countries-fill")) return;
+      let f;
+      try {
+        f = map.queryRenderedFeatures(evt.point, { layers: ["countries-fill"] })?.[0];
+      } catch {
+        return;
+      }
       if (!f) {
         setHoverCountry(null);
         return;

@@ -45,6 +45,7 @@ function severityPillStyle(sev) {
 }
 
 export default function AlertFeed({ liveAlerts }) {
+  const [anomalyPanelOpen, setAnomalyPanelOpen] = useState(true);
   const [acked, setAcked] = useState(() => new Set());
   const [items, setItems] = useState([]);
 
@@ -87,125 +88,139 @@ export default function AlertFeed({ liveAlerts }) {
       }}
     >
       <div
+        onClick={() => setAnomalyPanelOpen((prev) => !prev)}
         style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--border-subtle)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 12,
+          cursor: "pointer",
+          userSelect: "none",
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--border-subtle)",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-display)",
-          }}
-        >
-          <span
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <div
             style={{
-              width: 8,
-              height: 8,
+              width: "8px",
+              height: "8px",
               background: "var(--green-500)",
-              display: "inline-block",
+              borderRadius: "2px",
               flexShrink: 0,
             }}
           />
-          Live anomalies
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--text-primary)",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-display)",
+            }}
+          >
+            Live Anomalies
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              minWidth: 22,
+              height: 22,
+              padding: "0 8px",
+              borderRadius: "var(--radius-full)",
+              background: "var(--color-danger-bg)",
+              color: "var(--color-danger)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {activeCount}
+          </span>
         </div>
         <span
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            minWidth: 22,
-            height: 22,
-            padding: "0 8px",
-            borderRadius: "var(--radius-full)",
-            background: "var(--color-danger-bg)",
-            color: "var(--color-danger)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
+            fontSize: "14px",
+            color: "var(--text-tertiary)",
+            lineHeight: 1,
+            transform: anomalyPanelOpen ? "rotate(0deg)" : "rotate(-90deg)",
+            transition: "transform 0.2s ease",
+            display: "inline-block",
           }}
         >
-          {activeCount}
+          ▾
         </span>
       </div>
-      {items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-tertiary)" }}>
-          <div style={{ fontSize: 22, marginBottom: 8, color: "var(--green-200)" }} aria-hidden>
-            🌿
+      {anomalyPanelOpen &&
+        (items.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 20px", color: "var(--text-tertiary)" }}>
+            <div style={{ fontSize: 22, marginBottom: 8, color: "var(--green-200)" }} aria-hidden>
+              🌿
+            </div>
+            <div style={{ fontSize: 13 }}>No active anomalies</div>
           </div>
-          <div style={{ fontSize: 13 }}>No active anomalies</div>
-        </div>
-      ) : (
-        items.map((a) => {
-          const done = acked.has(a.alert_id) || a.acknowledged;
-          const sev = a.severity;
-          const pill = severityPillStyle(sev);
-          const crit = (sev || "").toUpperCase() === "CRITICAL";
-          return (
-            <div
-              key={a.alert_id}
-              style={{
-                padding: "10px 14px",
-                borderBottom: "1px solid var(--border-subtle)",
-                background: done ? "var(--bg-subtle)" : crit ? "var(--risk-critical-bg)" : "var(--bg-surface)",
-                opacity: done ? 0.5 : 1,
-                borderLeft: `3px solid ${done ? "var(--gray-300)" : severityBorder(sev)}`,
-              }}
-            >
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    padding: "2px 6px",
-                    borderRadius: "var(--radius-full)",
-                    border: "1px solid",
-                    ...pill,
-                  }}
-                >
-                  {a.alert_type}
-                </span>
-                <div style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-tertiary)" }}>
-                  {relTime(a.created_at)}
-                </div>
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginTop: 8 }}>
-                {a.supplier_id || "Portfolio"}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4, marginTop: 4 }}>{a.message}</div>
-              <button
-                type="button"
-                onClick={() => acknowledge(a.alert_id)}
+        ) : (
+          items.map((a) => {
+            const done = acked.has(a.alert_id) || a.acknowledged;
+            const sev = a.severity;
+            const pill = severityPillStyle(sev);
+            const crit = (sev || "").toUpperCase() === "CRITICAL";
+            return (
+              <div
+                key={a.alert_id}
                 style={{
-                  marginTop: 10,
-                  fontFamily: "var(--font-sans)",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: "var(--text-link)",
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  textDecoration: "underline",
+                  padding: "10px 14px",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  background: done ? "var(--bg-subtle)" : crit ? "var(--risk-critical-bg)" : "var(--bg-surface)",
+                  opacity: done ? 0.5 : 1,
+                  borderLeft: `3px solid ${done ? "var(--gray-300)" : severityBorder(sev)}`,
                 }}
               >
-                Acknowledge
-              </button>
-            </div>
-          );
-        })
-      )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                      padding: "2px 6px",
+                      borderRadius: "var(--radius-full)",
+                      border: "1px solid",
+                      ...pill,
+                    }}
+                  >
+                    {a.alert_type}
+                  </span>
+                  <div style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-tertiary)" }}>
+                    {relTime(a.created_at)}
+                  </div>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginTop: 8 }}>
+                  {a.supplier_id || "Portfolio"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4, marginTop: 4 }}>{a.message}</div>
+                <button
+                  type="button"
+                  onClick={() => acknowledge(a.alert_id)}
+                  style={{
+                    marginTop: 10,
+                    fontFamily: "var(--font-sans)",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: "var(--text-link)",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                  }}
+                >
+                  Acknowledge
+                </button>
+              </div>
+            );
+          })
+        ))}
     </div>
   );
 }

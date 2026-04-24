@@ -21,6 +21,7 @@ function tierBarColor(tier) {
 }
 
 export default function SupplierIntelPanel({ suppliers, selectedId, onSelect }) {
+  const [supplierPanelOpen, setSupplierPanelOpen] = useState(true);
   const [q, setQ] = useState("");
   const [sortBy, setSortBy] = useState("risk");
 
@@ -78,82 +79,109 @@ export default function SupplierIntelPanel({ suppliers, selectedId, onSelect }) 
         boxShadow: "none",
       }}
     >
-      <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--border-subtle)" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-display)",
-            marginBottom: 12,
-          }}
-        >
-          <span
+      <div
+        onClick={() => setSupplierPanelOpen((prev) => !prev)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          userSelect: "none",
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div
             style={{
-              width: 8,
-              height: 8,
+              width: "8px",
+              height: "8px",
               background: "var(--green-500)",
-              display: "inline-block",
+              borderRadius: "2px",
               flexShrink: 0,
             }}
           />
-          Supplier intelligence
-        </div>
-        <div style={{ position: "relative" }}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden
-            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }}
-          >
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M16 16l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          <input
-            value={q}
-            onChange={handleSearchChange}
-            placeholder="Search suppliers…"
+          <span
             style={{
-              width: "100%",
-              padding: "7px 12px 7px 34px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--border-default)",
-              background: "var(--bg-subtle)",
+              fontSize: "11px",
+              fontWeight: "600",
               color: "var(--text-primary)",
-              outline: "none",
-              fontFamily: "var(--font-sans)",
-              fontSize: 13,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-display)",
             }}
-          />
+          >
+            Supplier Intelligence
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-          {tab("risk", "Risk")}
-          {tab("emissions", "Emissions")}
-          {tab("name", "A–Z")}
-        </div>
+        <span
+          style={{
+            fontSize: "14px",
+            color: "var(--text-tertiary)",
+            lineHeight: 1,
+            transform: supplierPanelOpen ? "rotate(0deg)" : "rotate(-90deg)",
+            transition: "transform 0.2s ease",
+            display: "inline-block",
+          }}
+        >
+          ▾
+        </span>
       </div>
-      <div style={{ marginTop: 4, overflow: "auto", flex: 1, paddingBottom: 8 }}>
-        {filtered.slice(0, 200).map((s) => {
-          const pct = Math.min(100, Math.round(((s.emissions_30d_kg || 0) / maxE) * 100));
-          const active = selectedId === s.supplier_id;
-          return (
-            <SupplierCard
-              key={s.supplier_id}
-              supplier={s}
-              pct={pct}
-              active={active}
-              onSelect={handleSelect}
-            />
-          );
-        })}
-      </div>
+      {supplierPanelOpen && (
+        <>
+          <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid var(--border-subtle)" }}>
+            <div style={{ position: "relative" }}>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+                style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-tertiary)" }}
+              >
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M16 16l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <input
+                value={q}
+                onChange={handleSearchChange}
+                placeholder="Search suppliers…"
+                style={{
+                  width: "100%",
+                  padding: "7px 12px 7px 34px",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--border-default)",
+                  background: "var(--bg-subtle)",
+                  color: "var(--text-primary)",
+                  outline: "none",
+                  fontFamily: "var(--font-sans)",
+                  fontSize: 13,
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              {tab("risk", "Risk")}
+              {tab("emissions", "Emissions")}
+              {tab("name", "A–Z")}
+            </div>
+          </div>
+          <div style={{ marginTop: 4, overflow: "auto", flex: 1, paddingBottom: 8 }}>
+            {filtered.slice(0, 200).map((s) => {
+              const pct = Math.min(100, Math.round(((s.emissions_30d_kg || 0) / maxE) * 100));
+              const active = selectedId === s.supplier_id;
+              return (
+                <SupplierCard
+                  key={s.supplier_id}
+                  supplier={s}
+                  pct={pct}
+                  active={active}
+                  onSelect={handleSelect}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
