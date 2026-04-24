@@ -23,6 +23,7 @@ function tierBarColor(tier) {
 export default function Suppliers() {
   const [page, setPage] = useState(0);
   const [compareIds, setCompareIds] = useState([]);
+  const [inspectedSupplier, setInspectedSupplier] = useState(null);
   const [showBenchmarks, setShowBenchmarks] = useState(false);
   const [benchmarks, setBenchmarks] = useState([]);
   const { data, isLoading } = useSuppliers({ limit: 25, offset: page * 25, sort_by: "risk_score", order: "desc" });
@@ -32,7 +33,6 @@ export default function Suppliers() {
   }, [data?.items]);
   const items = data?.items || [];
   const total = data?.total ?? "—";
-  const allSuppliers = data?.items || [];
 
   useEffect(() => {
     if (!showBenchmarks) return;
@@ -41,10 +41,6 @@ export default function Suppliers() {
       .then((d) => setBenchmarks(d?.benchmarks || []))
       .catch(() => setBenchmarks([]));
   }, [showBenchmarks]);
-
-  const toggleCompare = (id) => {
-    setCompareIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]));
-  };
 
   return (
     <div
@@ -115,6 +111,7 @@ export default function Suppliers() {
             })}
           </div>
         ) : (
+        <>
         <div style={{ overflow: "auto" }}>
           <table className="cp-suppliers-table" style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--font-sans)", fontSize: 13 }}>
             <thead>
@@ -260,10 +257,28 @@ export default function Suppliers() {
                     </td>
                     <td style={{ padding: "12px 16px", textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6 }}>
-                        <button type="button" onClick={() => {}} style={miniBtn}>
+                        <button type="button" onClick={() => setInspectedSupplier(s)} style={miniBtn}>
                           Inspect
                         </button>
-                        <button type="button" onClick={() => toggleCompare(s.supplier_id)} style={miniBtn}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompareIds((prev) => {
+                              if (prev.includes(s.supplier_id)) {
+                                return prev.filter((id) => id !== s.supplier_id);
+                              }
+                              if (prev.length >= 2) {
+                                return [prev[1], s.supplier_id];
+                              }
+                              return [...prev, s.supplier_id];
+                            });
+                          }}
+                          style={{
+                            ...miniBtn,
+                            background: compareIds.includes(s.supplier_id) ? "var(--green-500)" : miniBtn.background,
+                            color: compareIds.includes(s.supplier_id) ? "white" : miniBtn.color,
+                          }}
+                        >
                           Compare
                         </button>
                       </div>
@@ -274,6 +289,107 @@ export default function Suppliers() {
             </tbody>
           </table>
         </div>
+        {compareIds.length === 2 &&
+          (() => {
+            const sup1 = items.find((x) => x.supplier_id === compareIds[0]);
+            const sup2 = items.find((x) => x.supplier_id === compareIds[1]);
+            if (!sup1 || !sup2) return null;
+            return (
+              <div
+                style={{
+                  marginTop: "24px",
+                  border: "1px solid var(--border-default)",
+                  borderRadius: "var(--radius-lg)",
+                  overflow: "hidden",
+                  background: "var(--bg-surface)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "14px 20px",
+                    background: "var(--bg-subtle)",
+                    borderBottom: "1px solid var(--border-default)",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      fontWeight: "600",
+                      color: "var(--text-primary)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    Supplier Comparison
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCompareIds([])}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-tertiary)",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                    }}
+                  >
+                    ✕ Clear
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 1fr" }}>
+                  <div style={{ borderRight: "1px solid var(--border-subtle)" }}>
+                    {["Name", "Country", "Industry", "Risk Tier", "Risk Score", "30d Emissions", "Trend", "Tier"].map((label) => (
+                      <div
+                        key={label}
+                        style={{
+                          padding: "12px 16px",
+                          borderBottom: "1px solid var(--border-subtle)",
+                          fontSize: "11px",
+                          fontWeight: "600",
+                          color: "var(--text-tertiary)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                        }}
+                      >
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  {[sup1, sup2].map((sup, idx) => (
+                    <div key={sup.supplier_id} style={{ borderRight: idx === 0 ? "1px solid var(--border-subtle)" : "none" }}>
+                      {[
+                        sup.name,
+                        sup.country,
+                        sup.industry,
+                        sup.risk_tier,
+                        sup.risk_score?.toFixed(3),
+                        `${(sup.emissions_30d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg`,
+                        sup.emissions_trend,
+                        `Tier ${sup.tier}`,
+                      ].map((value, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            padding: "12px 16px",
+                            borderBottom: "1px solid var(--border-subtle)",
+                            fontSize: "13px",
+                            color: "var(--text-primary)",
+                            fontWeight: i === 0 ? "600" : "400",
+                          }}
+                        >
+                          {value || "—"}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </>
         )}
         {isLoading ? <div style={{ padding: 16, color: "var(--text-tertiary)", fontSize: 13 }}>Loading…</div> : null}
         <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}>
@@ -286,33 +402,133 @@ export default function Suppliers() {
         </div>
       </div>
 
-      {compareIds.length === 2 ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0", marginTop: "24px", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)", overflow: "hidden", background: "var(--bg-surface)" }}>
-          {compareIds.map((id, idx) => {
-            const sup = allSuppliers.find((s) => s.supplier_id === id);
-            if (!sup) return null;
-            return (
-              <div key={id} style={{ padding: "24px", borderRight: idx === 0 ? "1px solid var(--border-default)" : "none" }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: "15px", fontWeight: "600" }}>{sup.name}</h3>
-                {[
-                  ["Country", sup.country],
-                  ["Risk tier", sup.risk_tier],
-                  ["Risk score", sup.risk_score?.toFixed(2)],
-                  ["30d emissions", `${(sup.emissions_30d_kg || 0).toFixed(0)} kg`],
-                  ["Trend", sup.emissions_trend],
-                  ["Industry", sup.industry],
-                  ["Tier", sup.tier],
-                ].map(([label, value]) => (
-                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border-subtle)", fontSize: "13px" }}>
-                    <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
-                    <span style={{ color: "var(--text-primary)", fontWeight: "500" }}>{value || "—"}</span>
-                  </div>
-                ))}
+      {inspectedSupplier && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            right: 0,
+            width: "380px",
+            height: "100vh",
+            background: "var(--bg-surface)",
+            borderLeft: "1px solid var(--border-default)",
+            boxShadow: "var(--shadow-lg)",
+            zIndex: 100,
+            overflowY: "auto",
+            padding: "24px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              marginBottom: "20px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  fontSize: "18px",
+                  fontWeight: "700",
+                  color: "var(--text-primary)",
+                  fontFamily: "var(--font-display)",
+                  margin: "0 0 4px",
+                }}
+              >
+                {inspectedSupplier.name}
+              </h2>
+              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                {inspectedSupplier.country} · Tier {inspectedSupplier.tier}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setInspectedSupplier(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-tertiary)",
+                cursor: "pointer",
+                fontSize: "18px",
+                padding: "4px",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div style={{ padding: "2px 0", borderTop: "1px solid var(--border-subtle)" }}>
+            {[
+              ["Industry", inspectedSupplier.industry],
+              ["Risk Tier", inspectedSupplier.risk_tier],
+              ["Risk Score", inspectedSupplier.risk_score != null ? inspectedSupplier.risk_score.toFixed(3) : null],
+              [
+                "30d Emissions",
+                `${(inspectedSupplier.emissions_30d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg CO₂e`,
+              ],
+              [
+                "90d Emissions",
+                `${(inspectedSupplier.emissions_90d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg CO₂e`,
+              ],
+              ["Emissions Trend", inspectedSupplier.emissions_trend],
+              ["Country", inspectedSupplier.country],
+              ["Supplier ID", inspectedSupplier.supplier_id],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "12px 0",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  fontSize: "13px",
+                }}
+              >
+                <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
+                <span
+                  style={{
+                    color: "var(--text-primary)",
+                    fontWeight: "500",
+                    fontFamily: typeof value === "number" ? "var(--font-mono)" : "var(--font-sans)",
+                  }}
+                >
+                  {value || "—"}
+                </span>
               </div>
-            );
-          })}
+            ))}
+          </div>
+
+          {["HIGH", "CRITICAL"].includes((inspectedSupplier.risk_tier || "").toUpperCase()) ? (
+            <div
+              style={{
+                marginTop: "20px",
+                padding: "14px 16px",
+                background: "var(--green-50)",
+                border: "1px solid var(--green-200)",
+                borderRadius: "var(--radius-md)",
+                borderLeft: "3px solid var(--green-500)",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: "var(--green-700)",
+                  margin: "0 0 4px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                Recommended Action
+              </p>
+              <p style={{ fontSize: "13px", color: "var(--green-800)", margin: 0, lineHeight: "1.5" }}>
+                Consider switching this supplier to ocean freight where possible — air to ocean switches typically reduce emissions by up to 95%.
+              </p>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
