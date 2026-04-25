@@ -15,7 +15,6 @@ const SKUAttribution = lazy(() => import("./views/SKUAttribution.jsx"));
 const SupplierNetwork = lazy(() => import("./views/SupplierNetwork.jsx"));
 const ScenarioEngine = lazy(() => import("./views/ScenarioEngine.jsx"));
 const Forecast = lazy(() => import("./views/Forecast.jsx"));
-const AlertSettings = lazy(() => import("./views/AlertSettings.jsx"));
 const Wiki = lazy(() => import("./views/Wiki.jsx"));
 const GoFundMe = lazy(() => import("./views/GoFundMe.jsx"));
 const Introduction = lazy(() => import("./views/Introduction.jsx"));
@@ -83,7 +82,6 @@ function Shell() {
               <Route path="network" element={<SupplierNetwork />} />
               <Route path="scenarios" element={<ScenarioEngine />} />
               <Route path="forecast" element={<Forecast />} />
-              <Route path="settings" element={<AlertSettings />} />
               <Route path="wiki" element={<Wiki />} />
               <Route path="go-fund-me" element={<GoFundMe />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
@@ -110,7 +108,6 @@ export default function App() {
           <Route path="/network" element={<Navigate to="/dashboard/network" replace />} />
           <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} />
           <Route path="/forecast" element={<Navigate to="/dashboard/forecast" replace />} />
-          <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
           <Route path="/wiki" element={<Navigate to="/dashboard/wiki" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

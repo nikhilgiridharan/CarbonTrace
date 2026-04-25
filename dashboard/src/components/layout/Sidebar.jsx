@@ -93,9 +93,6 @@ export default function Sidebar({ pipelineOk }) {
           </NavLink>
         ))}
         <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 8px" }} />
-        <NavLink to="/settings" className={({ isActive }) => `cp-nav-link${isActive ? " cp-nav-link--active" : ""}`}>
-          <span>Settings</span>
-        </NavLink>
         <NavLink to="/wiki" className={({ isActive }) => `cp-nav-link${isActive ? " cp-nav-link--active" : ""}`}>
           <span>Wiki</span>
         </NavLink>
