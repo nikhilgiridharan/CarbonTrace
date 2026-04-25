@@ -32,6 +32,7 @@ export default function Suppliers() {
     return Math.max(1, ...rows.map((s) => s.emissions_30d_kg || 0));
   }, [data?.items]);
   const items = data?.items || [];
+  const suppliers = items;
   const total = data?.total ?? "—";
 
   useEffect(() => {
@@ -265,21 +266,29 @@ export default function Suppliers() {
                           onClick={() => {
                             setCompareIds((prev) => {
                               if (prev.includes(s.supplier_id)) {
+                                // Deselect if already selected
                                 return prev.filter((id) => id !== s.supplier_id);
                               }
                               if (prev.length >= 2) {
+                                // Replace oldest selection with new one
                                 return [prev[1], s.supplier_id];
                               }
                               return [...prev, s.supplier_id];
                             });
                           }}
                           style={{
-                            ...miniBtn,
-                            background: compareIds.includes(s.supplier_id) ? "var(--green-500)" : miniBtn.background,
-                            color: compareIds.includes(s.supplier_id) ? "white" : miniBtn.color,
+                            padding: "5px 12px",
+                            background: compareIds.includes(s.supplier_id) ? "var(--green-500)" : "var(--bg-surface)",
+                            color: compareIds.includes(s.supplier_id) ? "white" : "var(--text-secondary)",
+                            border: "1px solid var(--border-default)",
+                            borderRadius: "var(--radius-md)",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            fontFamily: "var(--font-sans)",
+                            transition: "all 0.15s",
                           }}
                         >
-                          Compare
+                          {compareIds.includes(s.supplier_id) ? "✓ Selected" : "Compare"}
                         </button>
                       </div>
                     </td>
@@ -291,9 +300,37 @@ export default function Suppliers() {
         </div>
         {compareIds.length === 2 &&
           (() => {
-            const sup1 = items.find((x) => x.supplier_id === compareIds[0]);
-            const sup2 = items.find((x) => x.supplier_id === compareIds[1]);
-            if (!sup1 || !sup2) return null;
+            const s1 = suppliers.find((s) => s.supplier_id === compareIds[0]);
+            const s2 = suppliers.find((s) => s.supplier_id === compareIds[1]);
+            if (!s1 || !s2)
+              return (
+                <div
+                  style={{
+                    marginTop: "16px",
+                    padding: "16px",
+                    background: "var(--risk-high-bg)",
+                    border: "1px solid var(--risk-high-border)",
+                    borderRadius: "var(--radius-md)",
+                    fontSize: "13px",
+                    color: "var(--risk-high-text)",
+                  }}
+                >
+                  Could not find supplier data for comparison. The suppliers list may still be loading.
+                </div>
+              );
+
+            const fields = [
+              ["Supplier", (s) => s.name || s.supplier_id],
+              ["Country", (s) => s.country],
+              ["Industry", (s) => s.industry || "—"],
+              ["Risk Tier", (s) => s.risk_tier || "—"],
+              ["Risk Score", (s) => s.risk_score?.toFixed(3) ?? "—"],
+              ["30d Emissions", (s) => `${(s.emissions_30d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg CO₂e`],
+              ["90d Emissions", (s) => `${(s.emissions_90d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg CO₂e`],
+              ["Trend", (s) => s.emissions_trend || "—"],
+              ["Tier", (s) => (s.tier ? `Tier ${s.tier}` : "—")],
+            ];
+
             return (
               <div
                 style={{
@@ -302,6 +339,7 @@ export default function Suppliers() {
                   borderRadius: "var(--radius-lg)",
                   overflow: "hidden",
                   background: "var(--bg-surface)",
+                  boxShadow: "var(--shadow-card)",
                 }}
               >
                 <div
@@ -323,7 +361,7 @@ export default function Suppliers() {
                       letterSpacing: "0.06em",
                     }}
                   >
-                    Supplier Comparison
+                    Comparing {s1.name || s1.supplier_id} vs {s2.name || s2.supplier_id}
                   </span>
                   <button
                     type="button"
@@ -333,58 +371,154 @@ export default function Suppliers() {
                       border: "none",
                       color: "var(--text-tertiary)",
                       cursor: "pointer",
-                      fontSize: "14px",
+                      fontSize: "13px",
+                      fontFamily: "var(--font-sans)",
                     }}
                   >
-                    ✕ Clear
+                    ✕ Clear comparison
                   </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "160px 1fr 1fr" }}>
-                  <div style={{ borderRight: "1px solid var(--border-subtle)" }}>
-                    {["Name", "Country", "Industry", "Risk Tier", "Risk Score", "30d Emissions", "Trend", "Tier"].map((label) => (
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "180px 1fr 1fr",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRight: "1px solid var(--border-subtle)",
+                      background: "var(--bg-subtle)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "12px 16px",
+                        fontSize: "11px",
+                        fontWeight: "700",
+                        color: "var(--text-tertiary)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        borderBottom: "1px solid var(--border-default)",
+                        height: "44px",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      Field
+                    </div>
+                    {fields.map(([label]) => (
                       <div
                         key={label}
                         style={{
                           padding: "12px 16px",
-                          borderBottom: "1px solid var(--border-subtle)",
                           fontSize: "11px",
                           fontWeight: "600",
                           color: "var(--text-tertiary)",
                           textTransform: "uppercase",
-                          letterSpacing: "0.05em",
+                          letterSpacing: "0.04em",
+                          borderBottom: "1px solid var(--border-subtle)",
                         }}
                       >
                         {label}
                       </div>
                     ))}
                   </div>
-                  {[sup1, sup2].map((sup, idx) => (
-                    <div key={sup.supplier_id} style={{ borderRight: idx === 0 ? "1px solid var(--border-subtle)" : "none" }}>
-                      {[
-                        sup.name,
-                        sup.country,
-                        sup.industry,
-                        sup.risk_tier,
-                        sup.risk_score?.toFixed(3),
-                        `${(sup.emissions_30d_kg || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} kg`,
-                        sup.emissions_trend,
-                        `Tier ${sup.tier}`,
-                      ].map((value, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            padding: "12px 16px",
-                            borderBottom: "1px solid var(--border-subtle)",
-                            fontSize: "13px",
-                            color: "var(--text-primary)",
-                            fontWeight: i === 0 ? "600" : "400",
-                          }}
-                        >
-                          {value || "—"}
-                        </div>
-                      ))}
+
+                  {[s1, s2].map((sup, idx) => (
+                    <div
+                      key={sup.supplier_id}
+                      style={{
+                        borderRight: idx === 0 ? "1px solid var(--border-subtle)" : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: "12px 16px",
+                          fontSize: "13px",
+                          fontWeight: "700",
+                          color: "var(--text-primary)",
+                          borderBottom: "1px solid var(--border-default)",
+                          height: "44px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <span>{sup.name || sup.supplier_id}</span>
+                        {sup.risk_tier && (
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              fontWeight: "600",
+                              padding: "2px 7px",
+                              borderRadius: "var(--radius-full)",
+                              background:
+                                sup.risk_tier === "CRITICAL"
+                                  ? "var(--risk-critical-bg)"
+                                  : sup.risk_tier === "HIGH"
+                                  ? "var(--risk-high-bg)"
+                                  : sup.risk_tier === "MEDIUM"
+                                  ? "var(--risk-medium-bg)"
+                                  : "var(--risk-low-bg)",
+                              color:
+                                sup.risk_tier === "CRITICAL"
+                                  ? "var(--risk-critical-text)"
+                                  : sup.risk_tier === "HIGH"
+                                  ? "var(--risk-high-text)"
+                                  : sup.risk_tier === "MEDIUM"
+                                  ? "var(--risk-medium-text)"
+                                  : "var(--risk-low-text)",
+                            }}
+                          >
+                            {sup.risk_tier}
+                          </span>
+                        )}
+                      </div>
+
+                      {fields.map(([label, getter]) => {
+                        const val = getter(sup);
+                        const otherVal = getter(idx === 0 ? s2 : s1);
+                        const isEmissionsRow = label.includes("Emissions");
+                        const thisNum = parseFloat(String(val).replace(/[^0-9.]/g, ""));
+                        const otherNum = parseFloat(String(otherVal).replace(/[^0-9.]/g, ""));
+                        const isWorse = isEmissionsRow && !Number.isNaN(thisNum) && !Number.isNaN(otherNum) && thisNum > otherNum;
+                        const isBetter = isEmissionsRow && !Number.isNaN(thisNum) && !Number.isNaN(otherNum) && thisNum < otherNum;
+
+                        return (
+                          <div
+                            key={label}
+                            style={{
+                              padding: "12px 16px",
+                              fontSize: "13px",
+                              color: isWorse ? "var(--risk-high-text)" : isBetter ? "var(--risk-low-text)" : "var(--text-primary)",
+                              fontWeight: label === "Supplier" ? "600" : "400",
+                              fontFamily: label.includes("Score") || label.includes("Emissions") ? "var(--font-mono)" : "var(--font-sans)",
+                              borderBottom: "1px solid var(--border-subtle)",
+                              background: isWorse ? "var(--risk-high-bg)" : isBetter ? "var(--risk-low-bg)" : "transparent",
+                            }}
+                          >
+                            {val}
+                            {isWorse && <span style={{ marginLeft: "6px", fontSize: "11px" }}>↑</span>}
+                            {isBetter && <span style={{ marginLeft: "6px", fontSize: "11px" }}>↓</span>}
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
+                </div>
+
+                <div
+                  style={{
+                    padding: "10px 20px",
+                    borderTop: "1px solid var(--border-subtle)",
+                    fontSize: "11px",
+                    color: "var(--text-tertiary)",
+                    background: "var(--bg-subtle)",
+                  }}
+                >
+                  Red values indicate higher emissions. Green values indicate lower emissions. Click Compare on another supplier to swap the oldest
+                  selection.
                 </div>
               </div>
             );
