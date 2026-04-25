@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from psycopg2.extras import RealDictCursor
 
@@ -42,7 +42,8 @@ def fetch_report_data(conn):
         FROM shipment_silver_summary
         """
     )
-    summary = dict(cur.fetchone() or {})
+    result = cur.fetchone()
+    summary = dict(result) if result else {}
 
     cur.execute(
         """
@@ -93,141 +94,144 @@ def fetch_report_data(conn):
 @router.get("/generate")
 async def generate_esg_report():
     if not REPORTLAB_AVAILABLE:
-        return {"error": "reportlab not installed"}
-
-    with get_conn() as conn:
-        summary, by_mode, high_risk, _by_country = fetch_report_data(conn)
-
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=letter,
-        rightMargin=0.75 * inch,
-        leftMargin=0.75 * inch,
-        topMargin=0.75 * inch,
-        bottomMargin=0.75 * inch,
-    )
-    styles = getSampleStyleSheet()
-    green = colors.HexColor("#1a3d2b")
-    light_green = colors.HexColor("#f0fdf4")
-    gray = colors.HexColor("#6b7566")
-
-    title_style = ParagraphStyle("VerdantTitle", parent=styles["Title"], fontSize=22, textColor=green, spaceAfter=4)
-    subtitle_style = ParagraphStyle("VerdantSubtitle", parent=styles["Normal"], fontSize=11, textColor=gray, spaceAfter=16)
-    section_style = ParagraphStyle("VerdantSection", parent=styles["Heading2"], fontSize=13, textColor=green, spaceBefore=16, spaceAfter=8)
-    body_style = ParagraphStyle("VerdantBody", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#374034"), leading=14, spaceAfter=6)
-    small_style = ParagraphStyle("VerdantSmall", parent=styles["Normal"], fontSize=8, textColor=gray, leading=12)
-
-    now = datetime.utcnow()
-    story = [
-        Paragraph("Verdant", title_style),
-        Paragraph(f"Scope 3 GHG Emissions Report — {now.strftime('%B %Y')}", subtitle_style),
-        HRFlowable(width="100%", thickness=2, color=green),
-        Spacer(1, 12),
-        Paragraph(
-            "This report discloses Scope 3 Category 4 emissions using EPA Supply Chain GHG Emission Factors v1.4.0.",
-            body_style,
-        ),
-        Spacer(1, 16),
-        Paragraph("Executive Summary", section_style),
-    ]
-
-    ytd = summary.get("total_ytd") or 0
-    mtd = summary.get("total_30d") or 0
-    sup = summary.get("supplier_count") or 0
-    ship = summary.get("shipment_count") or 0
-    intensity = summary.get("avg_intensity") or 0
-
-    summary_data = [
-        ["Metric", "Value", "Scope", "Standard"],
-        ["Total Scope 3 Emissions (YTD)", f"{float(ytd):,.0f} kg CO₂e", "Scope 3 Cat. 4", "GHG Protocol"],
-        ["Total Scope 3 Emissions (30-day)", f"{float(mtd):,.0f} kg CO₂e", "Scope 3 Cat. 4", "GHG Protocol"],
-        ["Suppliers Tracked", f"{sup:,}", "All tiers", "Internal"],
-        ["Shipments Analyzed", f"{int(ship):,}", "All modes", "Internal"],
-        ["Average Carbon Intensity", f"{float(intensity):.4f} kg CO₂e/kg", "Scope 3 Cat. 4", "GHG Protocol"],
-    ]
-    t = Table(summary_data, colWidths=[2.5 * inch, 1.5 * inch, 1.3 * inch, 1.3 * inch])
-    t.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), green),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, light_green]),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5cc")),
-                ("PADDING", (0, 0), (-1, -1), 6),
-            ]
+        raise HTTPException(
+            status_code=503,
+            detail="PDF generation unavailable — reportlab not installed. Run: pip install reportlab",
         )
-    )
-    story += [t, Spacer(1, 16), Paragraph("Emissions by Transport Mode", section_style)]
 
-    mode_data = [["Mode", "Emissions (kg CO₂e)", "Shipments", "% of Total"]]
-    for row in by_mode:
-        mode_data.append(
-            [
-                row.get("transport_mode", ""),
-                f"{float(row.get('emissions_kg') or 0):,.0f}",
-                f"{int(row.get('shipments') or 0):,}",
-                f"{float(row.get('pct') or 0):.1f}%",
-            ]
-        )
-    t2 = Table(mode_data, colWidths=[1.5 * inch, 2 * inch, 1.5 * inch, 1.5 * inch])
-    t2.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), green),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, light_green]),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5cc")),
-                ("PADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
-    )
-    story += [t2, Spacer(1, 16)]
+    try:
+        with get_conn() as conn:
+            summary, by_mode, _high_risk, _by_country = fetch_report_data(conn)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error fetching report data: {str(e)[:200]}",
+        ) from e
 
-    if high_risk:
-        story.append(Paragraph("High-Risk Suppliers Requiring Action", section_style))
-        risk_data = [["Supplier", "Country", "Risk Tier", "30d Emissions", "Trend"]]
-        for row in high_risk:
-            risk_data.append(
-                [
-                    str(row.get("name", ""))[:30],
-                    row.get("country", ""),
-                    row.get("risk_tier", ""),
-                    f"{float(row.get('emissions_30d') or 0):,.0f} kg",
-                    row.get("emissions_trend", ""),
-                ]
+    try:
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=letter,
+            rightMargin=0.75 * inch,
+            leftMargin=0.75 * inch,
+            topMargin=0.75 * inch,
+            bottomMargin=0.75 * inch,
+        )
+
+        story = []
+        now = datetime.utcnow()
+        styles = getSampleStyleSheet()
+
+        GREEN = colors.HexColor("#1a3d2b")
+        LIGHT = colors.HexColor("#f0fdf4")
+        GRAY = colors.HexColor("#6b7566")
+
+        story.append(
+            Paragraph(
+                "Verdant — Scope 3 Emissions Report",
+                ParagraphStyle("T", parent=styles["Title"], fontSize=20, textColor=GREEN, spaceAfter=6),
             )
-        t3 = Table(risk_data, colWidths=[2.2 * inch, 0.8 * inch, 0.9 * inch, 1.2 * inch, 1.2 * inch])
-        t3.setStyle(
+        )
+        story.append(
+            Paragraph(
+                f"Generated: {now.strftime('%B %Y')} · EPA v1.4.0 factors",
+                ParagraphStyle("S", parent=styles["Normal"], fontSize=10, textColor=GRAY, spaceAfter=14),
+            )
+        )
+        story.append(HRFlowable(width="100%", thickness=1.5, color=GREEN, spaceAfter=14))
+
+        ytd = float(summary.get("total_ytd") or 0)
+        mtd = float(summary.get("total_30d") or 0)
+        sups = int(summary.get("supplier_count") or 0)
+        ships = int(summary.get("shipment_count") or 0)
+
+        summary_data = [
+            ["Metric", "Value"],
+            ["Total Scope 3 Emissions (YTD)", f"{ytd:,.0f} kg CO2e"],
+            ["Total Scope 3 Emissions (30-day)", f"{mtd:,.0f} kg CO2e"],
+            ["Suppliers Tracked", f"{sups:,}"],
+            ["Shipments Analyzed", f"{ships:,}"],
+        ]
+        t = Table(summary_data, colWidths=[3.5 * inch, 2.5 * inch])
+        t.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), green),
+                    ("BACKGROUND", (0, 0), (-1, 0), GREEN),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fff7ed")]),
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5cc")),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("BACKGROUND", (0, 1), (-1, -1), LIGHT),
+                    ("GRID", (0, 0), (-1, -1), 0.5, GRAY),
                     ("PADDING", (0, 0), (-1, -1), 6),
                 ]
             )
         )
-        story += [t3, Spacer(1, 16)]
+        story.append(t)
+        story.append(Spacer(1, 14))
 
-    story += [
-        Paragraph("Methodology & Data Sources", section_style),
-        Paragraph("Emission factors: EPA Supply Chain GHG Emission Factors v1.4.0.", body_style),
-        Paragraph(f"Report generated: {now.strftime('%Y-%m-%d %H:%M')} UTC", small_style),
-    ]
+        if by_mode:
+            story.append(
+                Paragraph(
+                    "Emissions by Transport Mode",
+                    ParagraphStyle("H", parent=styles["Heading2"], fontSize=12, textColor=GREEN, spaceAfter=8),
+                )
+            )
+            mode_data = [["Mode", "Emissions (kg CO2e)", "Shipments"]]
+            for row in by_mode:
+                mode_data.append(
+                    [
+                        str(row.get("transport_mode", "")),
+                        f"{float(row.get('emissions_kg') or 0):,.0f}",
+                        f"{int(row.get('shipments') or 0):,}",
+                    ]
+                )
+            t2 = Table(mode_data, colWidths=[2 * inch, 2.5 * inch, 1.5 * inch])
+            t2.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), GREEN),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("BACKGROUND", (0, 1), (-1, -1), LIGHT),
+                        ("GRID", (0, 0), (-1, -1), 0.5, GRAY),
+                        ("PADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(t2)
+            story.append(Spacer(1, 14))
 
-    doc.build(story)
-    buf.seek(0)
-    filename = f"verdant-scope3-report-{now.strftime('%Y-%m')}.pdf"
+        story.append(
+            Paragraph(
+                "Methodology",
+                ParagraphStyle("H2", parent=styles["Heading2"], fontSize=12, textColor=GREEN, spaceAfter=8),
+            )
+        )
+        story.append(
+            Paragraph(
+                "Emission factors: EPA Supply Chain GHG Emission Factors v1.4.0 "
+                "(October 2025). GHG data year: 2023. Dollar year: 2024 USD. "
+                "GWP: IPCC AR6. Scope 3 Category 4 upstream transportation.",
+                ParagraphStyle("B", parent=styles["Normal"], fontSize=9, textColor=GRAY, leading=14),
+            )
+        )
+
+        doc.build(story)
+        buf.seek(0)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF generation failed: {str(e)[:200]}",
+        ) from e
+
+    filename = f"verdant-scope3-report-{datetime.utcnow().strftime('%Y-%m')}.pdf"
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-cache"},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache",
+        },
     )
