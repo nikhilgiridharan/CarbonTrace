@@ -43,6 +43,11 @@ export default function Suppliers() {
       .catch(() => setBenchmarks([]));
   }, [showBenchmarks]);
 
+  useEffect(() => {
+    const availableIds = new Set(suppliers.map((s) => s.supplier_id));
+    setCompareIds((prev) => prev.filter((id) => availableIds.has(id)));
+  }, [suppliers]);
+
   return (
     <div
       style={{
@@ -210,15 +215,14 @@ export default function Suppliers() {
               </tr>
             </thead>
             <tbody>
-              {items.map((supplier, idx) => {
-                const pct = Math.min(100, Math.round(((supplier.emissions_30d_kg || 0) / maxE) * 100));
-                const score = Number(supplier.risk_score ?? 0);
+              {items.map((s, idx) => {
+                const pct = Math.min(100, Math.round(((s.emissions_30d_kg || 0) / maxE) * 100));
+                const score = Number(s.risk_score ?? 0);
                 const scorePct = Math.min(100, Math.max(0, score * 100));
                 const rowBg = idx % 2 === 0 ? "var(--bg-surface)" : "var(--bg-subtle)";
-                const isCompared = compareIds.includes(supplier.supplier_id);
                 return (
-                  <tr key={supplier.supplier_id} style={{ background: rowBg }}>
-                    <td style={{ padding: "12px 16px", color: "var(--text-primary)", fontWeight: 500 }}>{supplier.name}</td>
+                  <tr key={s.supplier_id} style={{ background: rowBg }}>
+                    <td style={{ padding: "12px 16px", color: "var(--text-primary)", fontWeight: 500 }}>{s.name}</td>
                     <td
                       style={{
                         padding: "12px 16px",
@@ -227,15 +231,15 @@ export default function Suppliers() {
                         fontSize: 12,
                       }}
                     >
-                      <span aria-hidden>{flagEmoji(supplier.country)}</span> {(supplier.country || "").toUpperCase()}
+                      <span aria-hidden>{flagEmoji(s.country)}</span> {(s.country || "").toUpperCase()}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
-                      <RiskBadge tier={supplier.risk_tier} />
+                      <RiskBadge tier={s.risk_tier} />
                     </td>
                     <td style={{ padding: "12px 16px", minWidth: 200 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ flex: 1, height: 4, background: "var(--gray-200)", borderRadius: "var(--radius-full)", overflow: "hidden" }}>
-                          <div style={{ width: `${pct}%`, height: "100%", background: tierBarColor(supplier.risk_tier), borderRadius: "var(--radius-full)" }} />
+                          <div style={{ width: `${pct}%`, height: "100%", background: tierBarColor(s.risk_tier), borderRadius: "var(--radius-full)" }} />
                         </div>
                         <span style={{ fontSize: 11, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>{pct}%</span>
                       </div>
@@ -247,7 +251,7 @@ export default function Suppliers() {
                             style={{
                               width: `${scorePct}%`,
                               height: "100%",
-                              background: tierBarColor(supplier.risk_tier),
+                              background: tierBarColor(s.risk_tier),
                               borderRadius: "var(--radius-full)",
                             }}
                           />
@@ -259,28 +263,28 @@ export default function Suppliers() {
                     </td>
                     <td style={{ padding: "12px 16px", textAlign: "right" }}>
                       <div style={{ display: "inline-flex", gap: 6 }}>
-                        <button type="button" onClick={() => setInspectedSupplier(supplier)} style={miniBtn}>
+                        <button type="button" onClick={() => setInspectedSupplier(s)} style={miniBtn}>
                           Inspect
                         </button>
                         <button
                           type="button"
                           onClick={() => {
                             setCompareIds((prev) => {
-                              if (prev.includes(supplier.supplier_id)) {
+                              if (prev.includes(s.supplier_id)) {
                                 // Deselect if already selected
-                                return prev.filter((id) => id !== supplier.supplier_id);
+                                return prev.filter((id) => id !== s.supplier_id);
                               }
                               if (prev.length >= 2) {
                                 // Replace oldest selection with new one
-                                return [prev[1], supplier.supplier_id];
+                                return [prev[1], s.supplier_id];
                               }
-                              return [...prev, supplier.supplier_id];
+                              return [...prev, s.supplier_id];
                             });
                           }}
                           style={{
                             padding: "5px 12px",
-                            background: isCompared ? "var(--green-500)" : "var(--bg-surface)",
-                            color: isCompared ? "white" : "var(--text-secondary)",
+                            background: compareIds.includes(s.supplier_id) ? "var(--green-500)" : "var(--bg-surface)",
+                            color: compareIds.includes(s.supplier_id) ? "white" : "var(--text-secondary)",
                             border: "1px solid var(--border-default)",
                             borderRadius: "var(--radius-md)",
                             fontSize: "12px",
@@ -289,7 +293,7 @@ export default function Suppliers() {
                             transition: "all 0.15s",
                           }}
                         >
-                          {isCompared ? "✓ Selected" : "Compare"}
+                          {compareIds.includes(s.supplier_id) ? "✓ Selected" : "Compare"}
                         </button>
                       </div>
                     </td>
