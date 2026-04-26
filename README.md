@@ -1,112 +1,150 @@
-# Verdant — Scope 3 Carbon Intelligence Platform
+# Verdant
 
-Track carbon emissions across your supply chain — down to the supplier, shipment, and SKU.
+**Scope 3 Carbon Intelligence Platform**
 
-**Live demo:** https://carbon-trace-8r4kifapt-nikhilgiridharans-projects.vercel.app
+Track carbon emissions across your supply chain — down to the
+supplier, shipment, and SKU. Built with a production-grade
+data pipeline, real-time anomaly detection, LightGBM risk
+scoring, and a natural language query layer.
 
-**Stack:** Kafka · PySpark · PostgreSQL · FastAPI · React · Mapbox
+**[Live Demo](https://carbon-trace-8r4kifapt-nikhilgiridharans-projects.vercel.app)**
+ · 
+**[Medium Article](https://medium.com/@nickgiridharan)**
 
-**Data sources:**
+![Verdant Dashboard](docs/screenshot.png)
 
-- Emission factors: EPA Supply Chain GHG Emission Factors v1.4.0 (October 2025)
-- Shipment data: Synthetically generated, calibrated to US Census 2024 trade patterns
-- Supplier coordinates: City-anchored using real major industrial/port city locations
+---
 
 ## Architecture
 
-Data is ingested via Kafka, processed by PySpark Bronze and Silver transformations, stored in PostgreSQL (Neon), and served via FastAPI.
+```mermaid
+flowchart LR
+    A[Kafka\n100 events/sec] --> B[PySpark\nBronze Layer]
+    B --> C[PySpark\nSilver Layer\nEmissions calc]
+    C --> D[PostgreSQL\nNeon Serverless]
+    D --> E[Airflow\n15-min schedule]
+    E --> F[FastAPI\nREST + WebSocket]
+    F --> G[React\nMapbox Dashboard]
+    H[Kafka Stream] --> I[Anomaly Detector\nZ-score real-time]
+    I --> F
+    J[EPA v1.4.0\nEmission Factors] --> C
+    K[LightGBM\nRisk Scoring] --> D
+```
 
-## Key Features
+---
 
-- Real-time supplier risk scoring (LightGBM, updates every 15 min)
-- EPA v1.4.0 verified emission factors (2023 GHG data, IPCC AR6 GWPs)
-- Interactive world map with 500 supplier nodes
-- SKU-level emissions attribution via Sankey diagram
-- 30/60/90-day emissions forecasting
-- WebSocket live anomaly feed
+## What It Does
 
-## Team
+Verdant answers one question for supply chain teams:
 
-- Data Engineer: pipeline, PostgreSQL modeling, API, infrastructure
-- Data Scientist: LightGBM risk scoring, XGBoost forecasting, MLflow
-- Supply Chain Analyst: EPA factor validation, KPI framework, Power BI
+> **Which suppliers are producing the most carbon, and what should we do about it?**
+
+| Feature | Description |
+|---|---|
+| **Emissions pipeline** | Kafka → PySpark → PostgreSQL processing 10M+ shipment records |
+| **EPA v1.4.0 factors** | Real emission factors from official EPA NAICS-6 dataset (Oct 2025) |
+| **LightGBM risk scoring** | Classifies 500 suppliers as LOW/MEDIUM/HIGH/CRITICAL every 15 min |
+| **Real-time anomaly detection** | Kafka consumer detects emissions spikes via z-score analysis |
+| **Natural language queries** | Ask questions in plain English — Claude API converts to SQL |
+| **Scenario engine** | Model transport mode switches and see CO₂ savings instantly |
+| **PDF ESG report** | One-click downloadable Scope 3 disclosure report |
+| **Live dashboard** | Interactive world map, Sankey attribution, 30/60/90d forecast |
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Ingestion | Apache Kafka (MSK-compatible) |
+| Processing | PySpark Structured Streaming |
+| Storage | PostgreSQL (Neon serverless) |
+| Orchestration | Apache Airflow |
+| ML | LightGBM, scikit-learn, MLflow |
+| API | FastAPI + WebSocket |
+| Dashboard | React, Vite, Mapbox GL JS, Recharts |
+| NL Query | Claude API (Anthropic) |
+| Deployment | Neon + Render + Vercel ($0/month) |
+
+---
+
+## Data Sources
+
+| Source | Description |
+|---|---|
+| [EPA v1.4.0](https://doi.org/10.5281/zenodo.17202747) | Supply Chain GHG Emission Factors, October 2025 |
+| [US Census 2024](https://api.census.gov/data/timeseries/intltrade/imports) | International trade flow calibration |
+| Synthetic shipments | 10M+ records calibrated to real trade patterns |
+
+Emission factors sourced from EPA Supply Chain GHG Emission Factors v1.4.0
+(Ingwersen and Young, 2025). GHG data year: 2023. Dollar year: 2024 USD.
+GWP standard: IPCC AR6.
+
+---
+
+## Key Engineering Decisions
+
+**Why Kafka over direct ingestion?**
+Decouples producers from consumers — if Spark is slow, Kafka
+buffers events. Also enables the real-time anomaly detection
+consumer to read the same stream independently.
+
+**Why not Snowflake/Redshift?**
+The live deployment uses Neon (serverless PostgreSQL) to stay
+within the $0/month budget. The pipeline is architected to
+swap in Snowflake with a single dbt profile change.
+
+**Why LightGBM over XGBoost?**
+Native categorical support (country, transport mode) and
+faster training on tabular data. Features include 30d/90d
+emissions volume, transport mode mix, and carbon intensity.
+
+**Real-time anomaly detection**
+A dedicated Kafka consumer maintains a 30-event rolling window
+per supplier and flags emissions spikes using z-score analysis
+(threshold: 2.5σ). Alerts broadcast to dashboard via WebSocket
+with sub-second latency.
+
+---
 
 ## Local Development
 
+### Prerequisites
+- Docker + Docker Compose
+- Python 3.11+
+- Node.js 18+
+
+### Quick Start
+
 ```bash
+# Clone
+git clone https://github.com/nikhilgiridharan/verdant.git
+cd verdant
+
+# Copy env vars
 cp .env.example .env
-docker compose up -d
-make kafka-topics
-make seed
-# optional: open http://localhost:3080 (dashboard), http://localhost:8000/docs (API)
+# Fill in VITE_MAPBOX_TOKEN and DATABASE_URL
+
+# Start full local stack (Kafka, Spark, Airflow, MLflow)
+make up
+
+# Seed the database
+DATABASE_URL=<your_neon_url> python3 scripts/seed_neon.py
+
+# Start dashboard
+cd dashboard && npm install && npm run dev
 ```
 
-1. Copy env template and set `VITE_MAPBOX_TOKEN` for the map.
-2. Start the stack.
-3. Create Kafka topics.
-4. Seed Postgres suppliers/SKUs/EPA factors.
-5. Open UIs (dashboard on **3080** by default, API on **8000**). Set `DASHBOARD_PORT` in `.env` to use another port.
+### Environment Variables
 
-**Docker must be running** (Docker Desktop, etc.). If the dashboard URL refuses the connection, the dashboard container is not up—run `docker compose ps` and `docker compose logs dashboard`.
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon PostgreSQL connection string |
+| `VITE_API_BASE_URL` | FastAPI backend URL |
+| `VITE_MAPBOX_TOKEN` | Mapbox GL JS public token |
+| `ANTHROPIC_API_KEY` | Claude API key for NL queries |
+| `RESEND_API_KEY` | Resend API key for email digest |
 
-**Without full Docker**, run the API (Postgres required) and the Vite dev server on the same port as compose:
+See `.env.production.example` for full reference.
 
-```bash
-docker compose up -d postgres   # or full stack
-cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000
-# other terminal:
-make ui                          # same port as DASHBOARD_PORT (default 3080); proxies /api to :8000
-```
-
-Additional targets:
-
-```bash
-make quality
-make test
-```
-
-## Environment variables
-
-See [.env.example](.env.example) for the full list (Kafka, MinIO, Postgres, MLflow, Airflow, API, dashboard, AWS).
-
-## API
-
-- OpenAPI: `http://localhost:8000/docs`
-- Health: `GET /health`
-- Versioned REST: `/api/v1/...`
-- WebSockets: `/ws/alerts`, `/ws/pipeline`
-
-## Data sources (reference)
-
-### Emission factors (EPA official)
-
-**EPA Supply Chain GHG Emission Factors v1.4.0**
-
-- Source: Ingwersen, W. and Young, B. (2025). Zenodo. https://doi.org/10.5281/zenodo.17202747
-- Coverage: 1,016 U.S. commodities at NAICS-6 level
-- GHG data year: 2023 | Dollar year: 2024 USD | GWP: IPCC AR6
-- Factor type: Supply Chain Emission Factors with Margins (SEF+MEF)
-- Transport mode factors used:
-  - Air freight (NAICS 481112): 0.644 kg CO2e / 2024 USD
-  - Deep sea ocean (NAICS 483111): 0.583 kg CO2e / 2024 USD
-  - Long-haul trucking (NAICS 484121): 0.767 kg CO2e / 2024 USD
-  - Line-haul rail (NAICS 482111): 0.154 kg CO2e / 2024 USD
-
-### Shipment data (synthetic)
-
-Shipment records are synthetically generated at configurable volume (default: 100 events/second). Supplier country distributions and transport mode weights are calibrated to reflect realistic U.S. import trade patterns. See `ingestion/producer/shipment_producer.py`.
-
-### Supplier and SKU reference data
-
-500 suppliers and 2,000 SKUs are generated with realistic attributes (company names, country distributions, industry classifications). See `ingestion/producer/shipment_producer.py` and `scripts/seed_neon.py` for Neon/demo loads.
-
-> **Note on methodology:** CarbonPulse converts EPA cost-based factors (kg CO2e / USD) to physical factors (kg CO2e / tonne-km) using industry-average freight cost rates. Full derivation documented in `docs/decisions/ADR-003-emission-factors-methodology.md`.
-
-## Links
-
-- API docs (local): `http://localhost:8000/docs`
-- Architecture: diagram above
-- Live demo: https://carbon-trace-8r4kifapt-nikhilgiridharans-projects.vercel.app
-
-ipeline status tables.
-4. Shipped FastAPI + WebSocket feeds powering a Mapbox React dashboard with **20+** REST endpoints in the v1 surface.
+## Project Structure

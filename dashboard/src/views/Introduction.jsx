@@ -8,7 +8,7 @@ export default function Introduction() {
   const wingBottomRef = useRef(null)
   const animRef = useRef(null)
   const audioRef = useRef(null)
-  const [muted, setMuted] = useState(false)
+  const [muted, setMuted] = useState(true)
 
   const W = typeof window !== 'undefined' ? window.innerWidth : 1440
   const H = typeof window !== 'undefined' ? window.innerHeight : 900
@@ -374,11 +374,15 @@ export default function Introduction() {
     }}>
       <audio
         ref={audioRef}
-        src="https://cdn.pixabay.com/audio/2022/03/10/audio_1e6f3d5a4b.mp3"
         loop
         preload="auto"
+        autoPlay
+        playsInline
         muted={muted}
-      />
+      >
+        <source src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" type="audio/mpeg" />
+        <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg" />
+      </audio>
       <svg
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
         viewBox={`0 0 ${W} ${H}`}

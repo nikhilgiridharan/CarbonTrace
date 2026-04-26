@@ -432,24 +432,6 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
         </button>
         <button
           type="button"
-          onClick={() => handleViewModeToggle("heatmap")}
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: 12,
-            fontWeight: 500,
-            color: mode === "heatmap" ? "var(--text-inverse)" : "var(--text-secondary)",
-            padding: "6px 10px",
-            cursor: "pointer",
-            background: mode === "heatmap" ? "var(--green-500)" : "var(--bg-surface)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "var(--shadow-sm)",
-          }}
-        >
-          Heatmap
-        </button>
-        <button
-          type="button"
           onClick={resetView}
           style={{
             fontFamily: "var(--font-sans)",

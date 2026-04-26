@@ -34,7 +34,7 @@ def fetch_report_data(conn):
         """
         SELECT
             ROUND(SUM(emissions_kg_co2e)::numeric, 0) as total_ytd,
-            ROUND(SUM(emissions_kg_co2e) FILTER (WHERE event_at > NOW() - INTERVAL '30 days')::numeric, 0) as total_30d,
+            ROUND((SUM(emissions_kg_co2e) FILTER (WHERE event_at > NOW() - INTERVAL '30 days'))::numeric, 0) as total_30d,
             COUNT(DISTINCT supplier_id) as supplier_count,
             COUNT(DISTINCT sku_id) as sku_count,
             COUNT(*) as shipment_count,
@@ -51,9 +51,12 @@ def fetch_report_data(conn):
                ROUND(SUM(emissions_kg_co2e)::numeric, 0) as emissions_kg,
                COUNT(*) as shipments,
                ROUND(
-                   SUM(emissions_kg_co2e) * 100.0 /
-                   NULLIF(SUM(SUM(emissions_kg_co2e)) OVER(), 0)
-               ::numeric, 1) as pct
+                   (
+                       SUM(emissions_kg_co2e) * 100.0 /
+                       NULLIF(SUM(SUM(emissions_kg_co2e)) OVER(), 0)
+                   )::numeric,
+                   1
+               ) as pct
         FROM shipment_silver_summary
         GROUP BY transport_mode
         ORDER BY emissions_kg DESC
