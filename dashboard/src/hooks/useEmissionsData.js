@@ -14,7 +14,10 @@ export function useEmissionsSummary() {
 export function useMapData() {
   return useQuery({
     queryKey: ["suppliers", "map"],
-    queryFn: async () => cachedFetch(`${apiBaseUrl()}/suppliers/map-data`, 120_000),
+    queryFn: async () => {
+      const data = await cachedFetch(`${apiBaseUrl()}/suppliers/map-data?limit=500`, 120_000);
+      return Array.isArray(data) ? data : data?.suppliers || data?.features || [];
+    },
     staleTime: 180_000,
     refetchInterval: 300_000,
   });

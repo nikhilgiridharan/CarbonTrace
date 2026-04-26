@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import DataFreshBadge from "../shared/DataFreshBadge.jsx";
 import { formatKg } from "../../utils/formatters.js";
 import { apiBaseUrl } from "../../utils/constants.js";
@@ -6,6 +6,19 @@ import { cachedFetch } from "../../utils/apiCache.js";
 
 export default function Topbar({ title, summary, pipelineMessage }) {
   const [anomalyCount, setAnomalyCount] = useState(0);
+  const [syncStatus, setSyncStatus] = useState("syncing");
+  const [lastSync, setLastSync] = useState(null);
+
+  const fetchSummary = useCallback(async () => {
+    try {
+      await cachedFetch(`${apiBaseUrl()}/emissions/summary`, 5_000);
+      setSyncStatus("fresh");
+      setLastSync(new Date());
+    } catch (err) {
+      setSyncStatus("stale");
+      console.error(err);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -18,6 +31,22 @@ export default function Topbar({ title, summary, pipelineMessage }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (summary) {
+      setSyncStatus("fresh");
+      setLastSync(new Date());
+    }
+  }, [summary]);
+
+  useEffect(() => {
+    fetchSummary();
+    const interval = setInterval(() => {
+      setSyncStatus("syncing");
+      fetchSummary();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [fetchSummary]);
 
   const ticker = useMemo(() => {
     const ytd = summary?.total_co2_ytd_kg ?? 0;
@@ -96,7 +125,7 @@ export default function Topbar({ title, summary, pipelineMessage }) {
         ))}
       </div>
       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-        <DataFreshBadge pipelineMessage={pipelineMessage} />
+        <DataFreshBadge pipelineMessage={pipelineMessage} syncStatus={syncStatus} lastSync={lastSync} />
         <span style={{ fontSize: 12, color: "var(--text-tertiary)", marginLeft: 12 }}>
           {new Date().toLocaleTimeString()}
         </span>

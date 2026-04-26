@@ -135,45 +135,54 @@ async def get_supplier_benchmarks():
     return {"benchmarks": rows, "count": len(rows)}
 
 
-@router.get("/map-data", response_model=list[schemas.MapSupplier])
-def map_data(response: Response) -> list[schemas.MapSupplier]:
+@router.get("/map-data", response_model=dict)
+def map_data(response: Response, limit: int = Query(500, ge=1, le=500)) -> dict:
     response.headers["Cache-Control"] = "public, max-age=120"
-    start = datetime.now(timezone.utc) - timedelta(days=30)
     with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
-            SELECT s.supplier_id, s.lat, s.lng,
-                   COALESCE(em.e30,0) AS emissions_30d_kg,
-                   COALESCE(r.risk_tier,'LOW') AS risk_tier,
-                   s.country, s.name,
-                   COALESCE(em.shipment_count,0)::int AS shipment_count
+            SELECT
+                s.supplier_id,
+                s.name,
+                s.country,
+                s.lat,
+                s.lng,
+                s.tier,
+                s.industry,
+                COALESCE(r.risk_tier, 'LOW') as risk_tier,
+                COALESCE(r.risk_score, 0) as risk_score,
+                COALESCE(r.emissions_30d_kg, 0) as emissions_30d_kg,
+                COALESCE(r.emissions_trend, 'STABLE') as emissions_trend
             FROM suppliers s
             LEFT JOIN supplier_risk_scores r ON r.supplier_id = s.supplier_id
-            LEFT JOIN (
-              SELECT supplier_id,
-                     SUM(emissions_kg_co2e) AS e30,
-                     COUNT(*)::int AS shipment_count
-              FROM shipment_silver_summary
-              WHERE event_at >= %s
-              GROUP BY supplier_id
-            ) em ON em.supplier_id = s.supplier_id
+            WHERE s.lat IS NOT NULL
+              AND s.lng IS NOT NULL
+              AND s.lat != 0
+              AND s.lng != 0
+            ORDER BY COALESCE(r.emissions_30d_kg, 0) DESC
+            LIMIT %s
             """,
-            (start,),
+            (limit,),
         )
         rows = cur.fetchall()
-    return [
-        schemas.MapSupplier(
-            supplier_id=r["supplier_id"],
-            lat=float(r["lat"]),
-            lng=float(r["lng"]),
-            emissions_30d_kg=float(r["emissions_30d_kg"]),
-            risk_tier=r["risk_tier"],
-            country=r["country"],
-            name=r["name"],
-            shipment_count=int(r["shipment_count"]),
+    normalized = []
+    for r in rows:
+        normalized.append(
+            {
+                "supplier_id": r["supplier_id"],
+                "name": r["name"],
+                "country": r["country"],
+                "lat": float(r["lat"]),
+                "lng": float(r["lng"]),
+                "tier": int(r["tier"]),
+                "industry": r["industry"],
+                "risk_tier": r["risk_tier"],
+                "risk_score": float(r["risk_score"]),
+                "emissions_30d_kg": float(r["emissions_30d_kg"]),
+                "emissions_trend": r["emissions_trend"],
+            }
         )
-        for r in rows
-    ]
+    return {"suppliers": normalized, "count": len(normalized)}
 
 
 @router.get("/{supplier_id}", response_model=schemas.SupplierProfile)

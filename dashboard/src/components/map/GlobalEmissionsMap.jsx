@@ -31,6 +31,7 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
   const [mode, setMode] = useState("globe");
   const [countryStats, setCountryStats] = useState([]);
   const [hoverCountry, setHoverCountry] = useState(null);
+  const [supplierNodes, setSupplierNodes] = useState([]);
 
   useEffect(() => {
     if (mode !== "heatmap") return;
@@ -40,32 +41,142 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
       .catch(() => setCountryStats([]));
   }, [mode]);
 
-  const geojson = useMemo(() => {
-    return {
-      type: "FeatureCollection",
-      features: (suppliers || []).map((s) => ({
-        type: "Feature",
-        properties: {
-          id: s.supplier_id,
-          name: s.name,
-          country: s.country,
-          risk: s.risk_tier,
-          emissions: s.emissions_30d_kg,
-          r: sizeForEmissions(s.emissions_30d_kg),
-          color: riskColor(s.risk_tier),
-        },
-        geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-      })),
-    };
-  }, [suppliers]);
+  const selected = useMemo(
+    () => (supplierNodes || suppliers || []).find((s) => s.supplier_id === selectedId),
+    [supplierNodes, suppliers, selectedId],
+  );
 
-  const selected = useMemo(() => (suppliers || []).find((s) => s.supplier_id === selectedId), [suppliers, selectedId]);
+  const fetchSuppliers = useCallback(async () => {
+    const API = import.meta.env.VITE_API_BASE_URL || "";
+    try {
+      const res = await fetch(`${API}/api/v1/suppliers/map-data?limit=500`);
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.suppliers || data.features || [];
+      return list;
+    } catch (e) {
+      console.error("Supplier map fetch failed:", e);
+      return [];
+    }
+  }, []);
+
+  const addSupplierLayer = useCallback((map, list) => {
+    ["supplier-nodes", "supplier-clusters", "supplier-count", "supplier-labels", "supplier-critical-ring"].forEach((id) => {
+      try {
+        if (map.getLayer(id)) map.removeLayer(id);
+      } catch {
+        /* ignore */
+      }
+    });
+    try {
+      if (map.getSource("suppliers")) map.removeSource("suppliers");
+    } catch {
+      /* ignore */
+    }
+
+    if (!list || !list.length) return;
+
+    const features = list
+      .filter((s) => s.lat && s.lng && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng)))
+      .map((s) => ({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [parseFloat(s.lng), parseFloat(s.lat)],
+        },
+        properties: {
+          supplier_id: s.supplier_id,
+          id: s.supplier_id,
+          name: s.name || s.supplier_id,
+          country: s.country || "",
+          risk_tier: s.risk_tier || "LOW",
+          emissions_30d: parseFloat(s.emissions_30d_kg) || 0,
+          risk_score: parseFloat(s.risk_score) || 0,
+        },
+      }));
+
+    if (!features.length) {
+      console.warn("No valid supplier coordinates found");
+      return;
+    }
+
+    map.addSource("suppliers", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features },
+    });
+
+    map.addLayer({
+      id: "supplier-nodes",
+      type: "circle",
+      source: "suppliers",
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 5, 500, 8, 2000, 12, 5000, 16, 10000, 22],
+        "circle-color": [
+          "match",
+          ["get", "risk_tier"],
+          "LOW",
+          "#3D8C21",
+          "MEDIUM",
+          "#D97706",
+          "HIGH",
+          "#C2410C",
+          "CRITICAL",
+          "#B91C1C",
+          "#6B7566",
+        ],
+        "circle-opacity": 0.85,
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-opacity": 0.6,
+      },
+    });
+
+    map.addLayer({
+      id: "supplier-critical-ring",
+      type: "circle",
+      source: "suppliers",
+      filter: ["==", ["get", "risk_tier"], "CRITICAL"],
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 10, 10000, 28],
+        "circle-color": "transparent",
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "#B91C1C",
+        "circle-stroke-opacity": 0.4,
+        "circle-opacity": 0,
+      },
+    });
+
+    console.log(`Added ${features.length} supplier nodes to map`);
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current?.getMap ? mapRef.current.getMap() : mapRef.current;
+    if (!map) return undefined;
+    const onLoad = async () => {
+      const list = await fetchSuppliers();
+      setSupplierNodes(list);
+      addSupplierLayer(map, list);
+    };
+    const onStyleLoad = async () => {
+      if (mode === "globe") {
+        const list = await fetchSuppliers();
+        setSupplierNodes(list);
+        addSupplierLayer(map, list);
+      }
+    };
+    map.on("load", onLoad);
+    map.on("style.load", onStyleLoad);
+    return () => {
+      map.off("load", onLoad);
+      map.off("style.load", onStyleLoad);
+    };
+  }, [addSupplierLayer, fetchSuppliers, mode]);
 
   const onClick = useCallback(
     (e) => {
       if (mode === "heatmap") return;
       const f = e.features?.[0];
-      if (f?.properties?.id) onSelect?.(f.properties.id);
+      if (f?.properties?.supplier_id) onSelect?.(f.properties.supplier_id);
     },
     [onSelect, mode],
   );
@@ -202,27 +313,13 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/light-v11"
-        interactiveLayerIds={mode === "heatmap" ? ["countries-fill"] : ["suppliers-circle"]}
+        interactiveLayerIds={mode === "heatmap" ? ["countries-fill"] : ["supplier-nodes"]}
         onClick={onClick}
         renderWorldCopies={false}
         maxTileCacheSize={50}
         trackResize={false}
       >
-        {mode === "globe" ? (
-          <Source id="suppliers" type="geojson" data={geojson}>
-            <Layer
-              id="suppliers-circle"
-              type="circle"
-              paint={{
-                "circle-radius": ["get", "r"],
-                "circle-color": ["get", "color"],
-                "circle-opacity": 0.85,
-                "circle-stroke-width": 1.5,
-                "circle-stroke-color": "#FFFFFF",
-              }}
-            />
-          </Source>
-        ) : (
+        {mode === "globe" ? null : (
           <Source id="countries" type="vector" url="mapbox://mapbox.country-boundaries-v1">
             <Layer
               id="countries-fill"
