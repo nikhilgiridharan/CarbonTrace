@@ -62,15 +62,6 @@ const sections = [
       "Use this to prepare mitigation actions before spikes happen.",
     ],
   },
-  {
-    tab: "Settings",
-    what: "Local alert-threshold controls for anomaly detection sensitivity.",
-    how: [
-      "Adjust thresholds with sliders based on your team’s tolerance for noise.",
-      "Click Save settings to persist to your browser.",
-      "Use Reset to return to defaults.",
-    ],
-  },
 ];
 
 export default function Wiki() {

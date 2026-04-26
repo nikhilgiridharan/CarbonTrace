@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
 import psycopg2
 from fastapi import APIRouter, HTTPException
@@ -97,6 +98,44 @@ class NLQueryResponse(BaseModel):
     insight: str
 
 
+RELEVANCE_TERMS = {
+    "emission",
+    "emissions",
+    "carbon",
+    "co2",
+    "co2e",
+    "scope 3",
+    "supplier",
+    "suppliers",
+    "shipment",
+    "shipments",
+    "sku",
+    "skus",
+    "transport",
+    "route",
+    "routes",
+    "anomaly",
+    "anomalies",
+    "risk",
+    "intensity",
+    "country",
+    "countries",
+    "trend",
+    "forecast",
+    "mode",
+}
+
+
+def is_relevant_question(question: str) -> bool:
+    q = (question or "").lower()
+    compact = re.sub(r"[^a-z0-9\s]+", " ", q)
+    # Treat obvious in-domain entities as relevant.
+    if re.search(r"\bsup-\d+\b|\bsku-\d+\b", q):
+        return True
+    # Match by key domain terms.
+    return any(term in compact for term in RELEVANCE_TERMS)
+
+
 def generate_sql(question: str) -> str:
     if not ANTHROPIC_KEY or anthropic is None:
         q = question.lower()
@@ -157,6 +196,15 @@ async def natural_language_query(request: NLQueryRequest):
         raise HTTPException(status_code=400, detail="Question too short")
     if len(request.question) > 500:
         raise HTTPException(status_code=400, detail="Question too long (max 500 chars)")
+    if not is_relevant_question(request.question):
+        return NLQueryResponse(
+            question=request.question,
+            sql="SELECT 'not relevant question' as message",
+            columns=[],
+            rows=[],
+            row_count=0,
+            insight="not relevant question",
+        )
 
     try:
         sql = generate_sql(request.question)
