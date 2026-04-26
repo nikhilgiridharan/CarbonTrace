@@ -6,19 +6,6 @@ import RiskBadge from "../shared/RiskBadge.jsx";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-function riskColor(tier) {
-  const t = (tier || "LOW").toUpperCase();
-  if (t === "MEDIUM") return "#D97706";
-  if (t === "HIGH") return "#C2410C";
-  if (t === "CRITICAL") return "#B91C1C";
-  return "#3D8C21";
-}
-
-function sizeForEmissions(kg) {
-  const v = Math.max(0, Math.log10((kg || 1) + 1));
-  return Math.min(24, Math.max(6, v * 6));
-}
-
 export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) {
   const mapRef = useRef(null);
   const [zoom, setZoom] = useState(2);
@@ -46,122 +33,121 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
     [supplierNodes, suppliers, selectedId],
   );
 
-  const fetchSuppliers = useCallback(async () => {
-    const API = import.meta.env.VITE_API_BASE_URL || "";
-    try {
-      const res = await fetch(`${API}/api/v1/suppliers/map-data?limit=500`);
-      if (!res.ok) throw new Error(res.status);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : data.suppliers || data.features || [];
-      return list;
-    } catch (e) {
-      console.error("Supplier map fetch failed:", e);
-      return [];
-    }
-  }, []);
-
-  const addSupplierLayer = useCallback((map, list) => {
-    ["supplier-nodes", "supplier-clusters", "supplier-count", "supplier-labels", "supplier-critical-ring"].forEach((id) => {
+  const loadSuppliers = useCallback(
+    async (map) => {
+      const API = import.meta.env.VITE_API_BASE_URL || "";
       try {
-        if (map.getLayer(id)) map.removeLayer(id);
-      } catch {
-        /* ignore */
+        const res = await fetch(`${API}/api/v1/suppliers/map-data?limit=500`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.suppliers || [];
+        setSupplierNodes(list);
+        console.log(`Fetched ${list.length} suppliers for map`);
+
+        ["supplier-nodes", "supplier-critical-ring", "supplier-labels"].forEach((id) => {
+          try {
+            if (map.getLayer(id)) map.removeLayer(id);
+          } catch {
+            /* ignore */
+          }
+        });
+        try {
+          if (map.getSource("suppliers")) map.removeSource("suppliers");
+        } catch {
+          /* ignore */
+        }
+
+        const features = list
+          .filter(
+            (s) =>
+              s.lat != null &&
+              s.lng != null &&
+              !Number.isNaN(parseFloat(s.lat)) &&
+              !Number.isNaN(parseFloat(s.lng)) &&
+              parseFloat(s.lat) !== 0 &&
+              parseFloat(s.lng) !== 0,
+          )
+          .map((s) => ({
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: [parseFloat(s.lng), parseFloat(s.lat)],
+            },
+            properties: {
+              supplier_id: s.supplier_id || "",
+              name: s.name || s.supplier_id || "",
+              country: s.country || "",
+              risk_tier: s.risk_tier || "LOW",
+              risk_score: parseFloat(s.risk_score) || 0,
+              emissions_30d: parseFloat(s.emissions_30d_kg) || 0,
+              trend: s.emissions_trend || "STABLE",
+            },
+          }));
+        console.log(`Adding ${features.length} valid supplier features`);
+        if (!features.length) {
+          console.warn("No valid supplier coordinates to display");
+          return;
+        }
+
+        map.addSource("suppliers", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features },
+        });
+        map.addLayer({
+          id: "supplier-nodes",
+          type: "circle",
+          source: "suppliers",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 5, 100, 7, 500, 9, 2000, 13, 5000, 17, 10000, 22],
+            "circle-color": ["match", ["get", "risk_tier"], "LOW", "#3D8C21", "MEDIUM", "#D97706", "HIGH", "#C2410C", "CRITICAL", "#B91C1C", "#6B7566"],
+            "circle-opacity": 0.85,
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-opacity": 0.7,
+          },
+        });
+        map.addLayer({
+          id: "supplier-critical-ring",
+          type: "circle",
+          source: "suppliers",
+          filter: ["==", ["get", "risk_tier"], "CRITICAL"],
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 12, 10000, 32],
+            "circle-color": "transparent",
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "#B91C1C",
+            "circle-stroke-opacity": 0.35,
+            "circle-opacity": 0,
+          },
+        });
+
+        map.on("click", "supplier-nodes", (e) => {
+          const props = e.features?.[0]?.properties;
+          if (!props) return;
+          onSelect?.(props.supplier_id);
+        });
+        map.on("mouseenter", "supplier-nodes", () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", "supplier-nodes", () => {
+          map.getCanvas().style.cursor = "";
+        });
+      } catch (err) {
+        console.error("Failed to load supplier map data:", err);
       }
-    });
-    try {
-      if (map.getSource("suppliers")) map.removeSource("suppliers");
-    } catch {
-      /* ignore */
-    }
-
-    if (!list || !list.length) return;
-
-    const features = list
-      .filter((s) => s.lat && s.lng && !Number.isNaN(Number(s.lat)) && !Number.isNaN(Number(s.lng)))
-      .map((s) => ({
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [parseFloat(s.lng), parseFloat(s.lat)],
-        },
-        properties: {
-          supplier_id: s.supplier_id,
-          id: s.supplier_id,
-          name: s.name || s.supplier_id,
-          country: s.country || "",
-          risk_tier: s.risk_tier || "LOW",
-          emissions_30d: parseFloat(s.emissions_30d_kg) || 0,
-          risk_score: parseFloat(s.risk_score) || 0,
-        },
-      }));
-
-    if (!features.length) {
-      console.warn("No valid supplier coordinates found");
-      return;
-    }
-
-    map.addSource("suppliers", {
-      type: "geojson",
-      data: { type: "FeatureCollection", features },
-    });
-
-    map.addLayer({
-      id: "supplier-nodes",
-      type: "circle",
-      source: "suppliers",
-      paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 5, 500, 8, 2000, 12, 5000, 16, 10000, 22],
-        "circle-color": [
-          "match",
-          ["get", "risk_tier"],
-          "LOW",
-          "#3D8C21",
-          "MEDIUM",
-          "#D97706",
-          "HIGH",
-          "#C2410C",
-          "CRITICAL",
-          "#B91C1C",
-          "#6B7566",
-        ],
-        "circle-opacity": 0.85,
-        "circle-stroke-width": 1.5,
-        "circle-stroke-color": "#ffffff",
-        "circle-stroke-opacity": 0.6,
-      },
-    });
-
-    map.addLayer({
-      id: "supplier-critical-ring",
-      type: "circle",
-      source: "suppliers",
-      filter: ["==", ["get", "risk_tier"], "CRITICAL"],
-      paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 10, 10000, 28],
-        "circle-color": "transparent",
-        "circle-stroke-width": 1.5,
-        "circle-stroke-color": "#B91C1C",
-        "circle-stroke-opacity": 0.4,
-        "circle-opacity": 0,
-      },
-    });
-
-    console.log(`Added ${features.length} supplier nodes to map`);
-  }, []);
+    },
+    [onSelect],
+  );
 
   useEffect(() => {
     const map = mapRef.current?.getMap ? mapRef.current.getMap() : mapRef.current;
     if (!map) return undefined;
-    const onLoad = async () => {
-      const list = await fetchSuppliers();
-      setSupplierNodes(list);
-      addSupplierLayer(map, list);
+    const onLoad = () => {
+      loadSuppliers(map);
     };
-    const onStyleLoad = async () => {
-      if (mode === "globe") {
-        const list = await fetchSuppliers();
-        setSupplierNodes(list);
-        addSupplierLayer(map, list);
+    const onStyleLoad = () => {
+      if (mode !== "heatmap") {
+        loadSuppliers(map);
       }
     };
     map.on("load", onLoad);
@@ -170,16 +156,7 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
       map.off("load", onLoad);
       map.off("style.load", onStyleLoad);
     };
-  }, [addSupplierLayer, fetchSuppliers, mode]);
-
-  const onClick = useCallback(
-    (e) => {
-      if (mode === "heatmap") return;
-      const f = e.features?.[0];
-      if (f?.properties?.supplier_id) onSelect?.(f.properties.supplier_id);
-    },
-    [onSelect, mode],
-  );
+  }, [loadSuppliers, mode]);
   const resetView = useCallback(() => {
     setZoom(2);
     setViewState((vs) => ({ ...vs, longitude: 10, latitude: 25, zoom: 2 }));
@@ -314,7 +291,6 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/light-v11"
         interactiveLayerIds={mode === "heatmap" ? ["countries-fill"] : ["supplier-nodes"]}
-        onClick={onClick}
         renderWorldCopies={false}
         maxTileCacheSize={50}
         trackResize={false}

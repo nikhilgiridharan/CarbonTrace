@@ -136,7 +136,7 @@ async def get_supplier_benchmarks():
 
 
 @router.get("/map-data", response_model=dict)
-def map_data(response: Response, limit: int = Query(500, ge=1, le=500)) -> dict:
+async def get_suppliers_map_data(response: Response, limit: int = Query(500, ge=1, le=500)) -> dict:
     response.headers["Cache-Control"] = "public, max-age=120"
     with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -145,13 +145,13 @@ def map_data(response: Response, limit: int = Query(500, ge=1, le=500)) -> dict:
                 s.supplier_id,
                 s.name,
                 s.country,
-                s.lat,
-                s.lng,
+                CAST(s.lat AS FLOAT) as lat,
+                CAST(s.lng AS FLOAT) as lng,
                 s.tier,
                 s.industry,
                 COALESCE(r.risk_tier, 'LOW') as risk_tier,
-                COALESCE(r.risk_score, 0) as risk_score,
-                COALESCE(r.emissions_30d_kg, 0) as emissions_30d_kg,
+                COALESCE(CAST(r.risk_score AS FLOAT), 0.0) as risk_score,
+                COALESCE(CAST(r.emissions_30d_kg AS FLOAT), 0.0) as emissions_30d_kg,
                 COALESCE(r.emissions_trend, 'STABLE') as emissions_trend
             FROM suppliers s
             LEFT JOIN supplier_risk_scores r ON r.supplier_id = s.supplier_id

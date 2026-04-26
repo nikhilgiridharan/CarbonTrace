@@ -12,7 +12,6 @@ import csv
 import hashlib
 import os
 import random
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -42,14 +41,243 @@ PIPELINE_COMPONENTS = [
     "api",
 ]
 
-def _import_get_supplier_name():
-    prod = REPO_ROOT / "ingestion" / "producer"
-    p = str(prod)
-    if p not in sys.path:
-        sys.path.insert(0, p)
-    from real_supplier_names import get_supplier_name
+REAL_SUPPLIER_NAMES = {
+    "CN_Electronics": [
+        "Foxconn Technology Group", "Pegatron Corporation", "Compal Electronics", "Wistron Corporation",
+        "BOE Technology Group", "Luxshare Precision", "Goertek Inc", "BYD Electronic", "Sunny Optical",
+        "AAC Technologies", "Tongda Group", "Truly International", "Jabil Circuit Shenzhen",
+        "Flex Ltd Shenzhen", "Flextronics Zhuhai", "Qisda Corporation", "Inventec Corporation",
+        "Quanta Computer Kunshan", "Delta Electronics Dongguan", "Lite-On Technology Guangzhou",
+    ],
+    "CN_Apparel": [
+        "Shenzhou International Group", "Pacific Textiles Holdings", "Crystal International Group",
+        "Texhong Textile Group", "Nameson Holdings", "Regina Miracle International", "Eclat Textile Suzhou",
+        "Feng Tay Enterprises", "Pou Chen Dongguan", "Yue Yuen Industrial", "Huali Industrial Group",
+        "Stella International", "TAL Apparel Shanghai", "Sinomax Group", "Esquel Group Guangdong",
+        "Fang Brothers Shenzhen", "Victory City International", "Lever Style Corporation",
+        "William Carter Suzhou", "Hanesbrands Nanjing",
+    ],
+    "CN_Auto Parts": [
+        "CITIC Dicastal", "Minth Group", "Fuyao Glass Industry", "Yanfeng Automotive Interiors",
+        "Joyson Safety Systems", "Sensata Technologies Guangzhou", "Lear Corporation Chengdu",
+        "Aptiv Shanghai", "BorgWarner Taicang", "ZF Chassis Liuzhou", "Bosch Automotive Suzhou",
+        "Continental Automotive Regensburg China", "Valeo Thermal Changchun", "Plastic Omnium Wuhan",
+        "Faurecia Emissions Control Nanjing", "Gentherm Automotive Suzhou",
+        "Superior Industries Qinhuangdao", "Nexteer Automotive Saginaw China",
+        "Modine Manufacturing Aachen China", "Meridian Lightweight Nanjing",
+    ],
+    "CN_Food & Beverage": [
+        "Yili Industrial Group", "China Mengniu Dairy", "WH Group Zhengzhou", "New Hope Liuhe",
+        "COFCO Corporation", "Bright Food Shanghai", "Dali Foods Group", "Uni-President China",
+        "Want Want China Holdings", "Foshan Haitian Flavouring", "Ting Hsin International",
+        "Wens Foodstuff Group", "Sunner Development", "New Hope Dairy", "Feihe International",
+        "Ausnutria Dairy", "Nongfu Spring", "China Resources Beer", "Tsingtao Brewery", "Yanjing Brewery",
+    ],
+    "CN_Chemicals": [
+        "Sinopec Corp Shanghai", "Wanhua Chemical Group", "Rongsheng Petrochemical", "Hengli Petrochemical",
+        "Zhejiang NHU", "Jiangsu Yangnong Chemical", "BASF Petrochemical Nanjing",
+        "Dow Chemical Zhangjiagang", "LyondellBasell Suzhou", "Eastman Chemical Hefei", "Celanese Nanjing",
+        "Solvay Specialty Polymers Shanghai", "Lanxess Urethane Wuxi", "Clariant Masterbatches Shanghai",
+        "Evonik Specialty Chemicals Shanghai", "Arkema Coating Resins Cangzhou",
+        "Dupont Electronics Shanghai", "Huntsman Advanced Materials Shanghai",
+        "Air Products Suzhou", "Linde Industrial Gases Hangzhou",
+    ],
+    "CN_Industrial Machinery": [
+        "Siemens Factory Automation Chengdu", "ABB Robotics Shanghai", "Schneider Electric Wuhan",
+        "Rockwell Automation Shanghai", "Emerson Automation Marshalltown China",
+        "Honeywell Process Solutions Shanghai", "GE Healthcare Wuxi", "Caterpillar Xuzhou",
+        "Komatsu Changzhou", "Volvo CE Linyi", "Liebherr Nenzing China", "Terex Changchun",
+        "Manitowoc Cranes Shunde", "Atlas Copco Wuxi", "Ingersoll Rand Compression Wuxi",
+        "Gardner Denver Suzhou", "Sulzer Pumps Suzhou", "Alfa Laval Qingdao", "SPX FLOW Suzhou",
+        "Dover Pump Solutions Shanghai",
+    ],
+    "MX_Auto Parts": [
+        "Nemak Monterrey", "Vitro Monterrey", "Grupo KUO San Luis Potosi", "Rassini Puebla",
+        "Metalsa Monterrey", "Katcon Global Monterrey", "Grupo Industrial Saltillo", "Draxton Queretaro",
+        "DENSO Manufacturing Mexico", "Magna Closures Ramos Arizpe", "Delphi Technologies Juarez",
+        "Lear Corporation Silao", "Aptiv Cd Juarez", "Continental Guadalajara",
+        "ZF Steering Mexico Queretaro", "Bosch Rexroth Monterrey", "Valeo Thermal Systems Puebla",
+        "Plastic Omnium Auto Inergy San Luis Potosi", "Faurecia Emissions Silao", "Motherson Sumi Toluca",
+    ],
+    "MX_Food & Beverage": [
+        "Grupo Bimbo Mexico City", "Gruma Monterrey", "Sigma Alimentos Monterrey", "Lala Torreon",
+        "Bachoco Celaya", "Arca Continental Monterrey", "Coca-Cola FEMSA Mexico City",
+        "Grupo Modelo Mexico City", "Grupo Herdez Mexico City", "Jumex Ecatepec", "La Costena Lerma",
+        "Barcel Lerma", "Grupo Lala Durango", "Del Monte Foods Irapuato",
+        "McCormick de Mexico Cuautitlan", "Heinz Mexico Queretaro", "Nestle Mexico Queretaro",
+        "Pepsico Mexico Monterrey", "Kellanova Mexico Monterrey", "Kraft Heinz Mexico Lerma",
+    ],
+    "MX_Apparel": [
+        "Kaltex Berriozabal", "Global Denim Gomez Palacio", "Parras Cone de Mexico Parras",
+        "Tavex Mexico Tlaxcala", "Cone Denim Parras", "Propimex Puebla", "Textil del Valle Aguascalientes",
+        "Industrias Cannon Tlaxcala", "Grupo Textil Providencia Queretaro", "Nylstar Mexico Puebla",
+        "Compania Industrial de Orizaba Veracruz", "Roc-Sil Textiles Guadalajara",
+        "Fibras Texcel Toluca", "Hilasal Mexicana Monterrey", "Hamco San Pedro Garza Garcia",
+        "Confecciones Internacionales Merida", "Textiles Opichen Merida",
+        "Maquilas Tetakawi Guaymas", "American Industries Monterrey", "Mexmode Morelos",
+    ],
+    "CA_Auto Parts": [
+        "Magna International Aurora", "Martinrea International Vaughan", "Linamar Corporation Guelph",
+        "Multimatic Markham", "Stackpole International Ancaster", "Woodbridge Foam Mississauga",
+        "ABC Technologies Brampton", "Shawflex Toronto", "Cosma International Aurora",
+        "Inteva Products Windsor", "Martinrea Honsel Soest Canada", "Flex-N-Gate Acton",
+        "Meridian Lightweight Technologies Strathroy", "Magna Exteriors Guelph",
+        "Decoma International Concord", "Ventra Industries Tillsonburg", "Wescast Industries Brantford",
+        "Toyoda Gosei Ontario Cambridge", "Denso Manufacturing Canada Guelph",
+        "Toyota Boshoku Canada Cambridge",
+    ],
+    "CA_Industrial Machinery": [
+        "Bombardier Transportation Plattsburgh Canada", "CAE Inc Montreal", "Toromont Industries Toronto",
+        "Finning International Vancouver", "Wajax Corporation Mississauga", "Russel Metals Mississauga",
+        "Bird Construction Mississauga", "PCL Constructors Edmonton", "EllisDon Corporation London",
+        "Aecon Group Toronto", "SNC-Lavalin Montreal", "Strad Inc Calgary", "Maxim Power Corp Calgary",
+        "Stuart Olson Calgary", "Graham Corporation Regina", "Smith International Calgary",
+        "Savanna Energy Services Calgary", "CES Energy Solutions Calgary", "Enerflex Ltd Calgary",
+        "Pason Systems Calgary",
+    ],
+    "DE_Auto Parts": [
+        "Robert Bosch GmbH Stuttgart", "Continental AG Hannover", "ZF Friedrichshafen AG",
+        "Mahle GmbH Stuttgart", "Schaeffler AG Herzogenaurach", "Hella GmbH Lippstadt",
+        "Brose Fahrzeugteile Coburg", "Webasto SE Stockdorf", "Knorr-Bremse AG Munich",
+        "Leoni AG Nuremberg", "ElringKlinger AG Dettingen", "Stabilus GmbH Koblenz",
+        "Grammer AG Amberg", "Norma Group Maintal", "SAF-Holland Bessenbach",
+        "Polytec Group Horsching Germany", "Georg Fischer Schaffhausen Germany",
+        "Wabco Holdings Hanover", "TE Connectivity Bensheim", "Visteon Corporation Kerpen",
+    ],
+    "DE_Industrial Machinery": [
+        "Siemens AG Munich", "ThyssenKrupp AG Essen", "Voith GmbH Heidenheim", "Trumpf GmbH Ditzingen",
+        "KUKA AG Augsburg", "GEA Group Dusseldorf", "Heidelberger Druckmaschinen",
+        "Gebr Pfeiffer Kaiserslautern", "Windmoller Holscher Lengerich", "Haver Boecker Oelde",
+        "BMA AG Braunschweig", "Linde Engineering Pullach", "Andritz AG Germany",
+        "Sulzer Pumps Winterthur Germany", "Atlas Copco Essen", "Sandvik Coromant Dusseldorf",
+        "Alfa Laval Lund Germany", "SPX FLOW Bad Homburg", "Dover Corporation Cologne", "Graco Inc Munich",
+    ],
+    "DE_Chemicals": [
+        "BASF SE Ludwigshafen", "Bayer AG Leverkusen", "Lanxess AG Cologne", "Evonik Industries Essen",
+        "Henkel AG Dusseldorf", "Wacker Chemie AG Munich", "Brenntag SE Essen", "Symrise AG Holzminden",
+        "Merck KGaA Darmstadt", "Covestro AG Leverkusen", "K+S AG Kassel",
+        "Clariant International Muttenz Germany", "Solvay Specialty Brunsbuttel",
+        "Celanese GmbH Frankfurt", "Air Liquide Deutschland Dusseldorf", "Linde plc Munich",
+        "Air Products Hattingen", "Praxair Deutschland Dusseldorf",
+        "Nippon Gases Europa Dusseldorf", "Ineos Styrolution Frankfurt",
+    ],
+    "VN_Electronics": [
+        "Samsung Electronics HCMC Complex", "LG Electronics Haiphong", "Intel Products Vietnam HCMC",
+        "Canon Vietnam Hanoi", "Panasonic Vietnam Hanoi", "Foxconn Industrial Vietnam Bac Ninh",
+        "Luxshare ICT Vietnam Bac Giang", "Goertek Vietnam Nghe An", "Jabil Circuit Vietnam HCMC",
+        "Flextronics Vietnam Binh Duong", "Nidec Vietnam Binh Duong", "Mabuchi Motor Vietnam Dong Nai",
+        "Hosiden Vietnam Bac Ninh", "Kyocera Vietnam Binh Duong", "TDK Vietnam Binh Duong",
+        "Murata Manufacturing Vietnam Binh Duong", "Alps Alpine Vietnam Dong Nai",
+        "Yazaki Vietnam Vinh Phuc", "Sumitomo Electric Vietnam Binh Duong", "AMS OSRAM Vietnam HCMC",
+    ],
+    "VN_Apparel": [
+        "Viet Tien Garment Corporation HCMC", "May 10 Corporation Hanoi", "Nha Be Garment Corporation HCMC",
+        "Thanh Cong Textile Garment HCMC", "Hoa Tho Textile Garment Da Nang", "Phong Phu Corporation HCMC",
+        "Saigon 3 Garment HCMC", "An Phuoc Garment HCMC", "Vinatex Hanoi", "TNG Investment Vietnam Thai Nguyen",
+        "Garment 10 Corporation Hanoi", "Duc Giang Corporation Hanoi", "Hung Yen Garment Corporation",
+        "Hanosimex Hanoi", "Maxport Limited Vietnam Hanoi", "Crystal Martin Vietnam Binh Duong",
+        "Eclat Textile Vietnam Binh Duong", "Coats Vietnam HCMC", "YKK Vietnam HCMC",
+        "Scovill Fasteners Vietnam Binh Duong",
+    ],
+    "JP_Auto Parts": [
+        "Toyota Industries Corporation Aichi", "Denso Corporation Kariya", "Aisin Corporation Kariya",
+        "Jtekt Corporation Osaka", "Toyota Boshoku Aichi", "Sumitomo Electric Industries Osaka",
+        "Yazaki Corporation Tokyo", "Tokai Rika Aichi", "Toyoda Gosei Aichi", "Stanley Electric Tokyo",
+        "Koito Manufacturing Tokyo", "Futaba Industrial Aichi", "Tachi-S Akishima", "Kojima Industries Aichi",
+        "GS Yuasa Kyoto", "Maruyasu Industries Aichi", "Toyoda Iron Works Aichi", "Toyo Tire Corporation Osaka",
+        "Sumitomo Riko Aichi", "Calsonic Kansei Saitama",
+    ],
+    "JP_Electronics": [
+        "Sony Corporation Tokyo", "Panasonic Holdings Osaka", "Murata Manufacturing Kyoto",
+        "TDK Corporation Tokyo", "Nidec Corporation Kyoto", "Kyocera Corporation Kyoto", "Alps Alpine Tokyo",
+        "Mabuchi Motor Chiba", "Hosiden Corporation Osaka", "Minebea Mitsumi Tokyo", "Rohm Semiconductor Kyoto",
+        "Omron Corporation Kyoto", "Keyence Corporation Osaka", "Hirose Electric Tokyo", "Fujikura Ltd Tokyo",
+        "Sumitomo Electric Osaka", "Hitachi Metals Tokyo", "Shin-Etsu Chemical Tokyo", "Hoya Corporation Tokyo",
+        "Ushio Inc Tokyo",
+    ],
+    "KR_Electronics": [
+        "Samsung SDI Suwon", "SK Hynix Icheon", "LG Display Paju", "Samsung Electro-Mechanics Suwon",
+        "LG Innotek Seoul", "Samsung Display Asan", "Hyundai Mobis Seoul", "SK Innovation Seoul",
+        "Hanon Systems Daejeon", "LS Electric Anyang", "Hyosung Corporation Seoul", "Korea Circuit Incheon",
+        "Interflex Gumi", "BH Co Ltd Cheonan", "Simmtech Cheongju", "Daeduck Electronics Cheonan",
+        "Iljin Electric Seoul", "Wonik IPS Pyeongtaek", "Doosan Bobcat Incheon", "Hanwha Solutions Seoul",
+    ],
+    "IN_Pharmaceuticals": [
+        "Sun Pharmaceutical Industries Mumbai", "Dr Reddys Laboratories Hyderabad", "Cipla Limited Mumbai",
+        "Lupin Limited Mumbai", "Aurobindo Pharma Hyderabad", "Divis Laboratories Hyderabad",
+        "Biocon Limited Bangalore", "Glenmark Pharmaceuticals Mumbai", "Torrent Pharmaceuticals Ahmedabad",
+        "Alkem Laboratories Mumbai", "Ipca Laboratories Mumbai", "Zydus Lifesciences Ahmedabad",
+        "Abbott India Mumbai", "Pfizer India Mumbai", "GlaxoSmithKline India Mumbai", "Sanofi India Mumbai",
+        "Novartis India Mumbai", "AstraZeneca India Bangalore", "Johnson Johnson India Mumbai",
+        "Roche India Mumbai",
+    ],
+    "IN_Textiles": [
+        "Welspun India Ahmedabad", "Arvind Limited Ahmedabad", "Raymond Limited Mumbai",
+        "Vardhman Textiles Ludhiana", "Trident Group Barnala", "Indo Count Industries Kolhapur",
+        "Siyaram Silk Mills Mumbai", "Himatsingka Seide Bangalore", "Nitin Spinners Bhilwara",
+        "Banswara Syntex Banswara", "Century Enka Pune", "Ginni Filaments Dadri", "Nahar Industrial Ludhiana",
+        "Sutlej Textiles Bhawanimandi", "Bombay Dyeing Mumbai", "Mafatlal Industries Ahmedabad",
+        "BSL Limited Bhilwara", "Ambika Cotton Mills Dindigul", "Pallonji Textiles Mumbai",
+        "KPR Mill Coimbatore",
+    ],
+    "TW_Electronics": [
+        "Taiwan Semiconductor Manufacturing TSMC", "Hon Hai Precision Foxconn Taiwan",
+        "Pegatron Corporation Taipei", "Quanta Computer Taoyuan", "Compal Electronics Taipei",
+        "Wistron Corporation Taipei", "ASUSTeK Computer Taipei", "Acer Incorporated Taipei",
+        "MediaTek Incorporated Hsinchu", "Realtek Semiconductor Hsinchu", "Novatek Microelectronics Hsinchu",
+        "Silicon Motion Technology Hsinchu", "Himax Technologies Tainan", "Innolux Corporation Miaoli",
+        "AU Optronics Hsinchu", "Advanced Semiconductor Engineering ASE",
+        "Siliconware Precision Industries Taichung", "King Yuan Electronics Miaoli",
+        "Powertech Technology Hsinchu", "Nan Ya PCB Taoyuan",
+    ],
+    "US_Consumer Goods": [
+        "Procter Gamble Cincinnati", "Colgate-Palmolive New York", "Church Dwight Ewing",
+        "Spectrum Brands Middleton", "Energizer Holdings St Louis", "Edgewell Personal Care Shelton",
+        "Prestige Consumer Healthcare Tarrytown", "Central Garden Pet Walnut Creek", "Acco Brands Lake Zurich",
+        "Avery Dennison Glendale", "Sealed Air Corporation Parsippany", "Berry Global Group Evansville",
+        "Silgan Holdings Stamford", "AptarGroup Crystal Lake", "Sonoco Products Hartsville",
+        "Greif Inc Delaware", "Pactiv Evergreen Lake Forest", "Graphic Packaging Atlanta",
+        "WestRock Company Atlanta", "Bemis Company Neenah",
+    ],
+    "US_Industrial Machinery": [
+        "Caterpillar Inc Deerfield", "Deere Company Moline", "Parker Hannifin Cleveland",
+        "Emerson Electric St Louis", "Eaton Corporation Dublin", "Illinois Tool Works Glenview",
+        "Dover Corporation Downers Grove", "Rockwell Automation Milwaukee", "Roper Technologies Sarasota",
+        "IDEX Corporation Lake Forest", "Mueller Water Products Atlanta", "Enpro Industries Charlotte",
+        "Chart Industries Ball Ground", "Graham Corporation Batavia", "Thermon Group San Marcos",
+        "Lydall Inc Manchester", "NN Inc Johnson City", "Haynes International Kokomo",
+        "Watts Water Technologies North Andover", "Franklin Electric Bluffton",
+    ],
+}
 
-    return get_supplier_name
+
+def get_real_supplier_name(country: str, industry: str, index: int, used: set[str]) -> str:
+    key = f"{country}_{industry}"
+    names = REAL_SUPPLIER_NAMES.get(key, [])
+
+    if not names:
+        for k, v in REAL_SUPPLIER_NAMES.items():
+            if k.startswith(f"{country}_"):
+                names = v
+                break
+
+    if not names:
+        for k, v in REAL_SUPPLIER_NAMES.items():
+            if k.endswith(f"_{industry}"):
+                names = v
+                break
+
+    if names:
+        base = names[index % len(names)]
+        candidate = base
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base} {suffix}"
+            suffix += 1
+        used.add(candidate)
+        return candidate
+
+    return f"{country} Supplier {index:04d}"
 
 
 CATEGORIES = [
@@ -106,7 +334,6 @@ def clear_demo_tables(conn) -> None:
 
 
 def seed_suppliers(conn) -> int:
-    get_supplier_name = _import_get_supplier_name()
     used_names: set[str] = set()
     rows = []
     with SUPPLIERS_CSV.open(encoding="utf-8") as f:
@@ -115,7 +342,7 @@ def seed_suppliers(conn) -> int:
             sid = r["supplier_id"].strip()
             country = r["country"].strip()
             industry = (r.get("industry") or "").strip() or "Electronics"
-            name = get_supplier_name(country, industry, used_names, i)
+            name = get_real_supplier_name(country, industry, i, used_names)
             rows.append(
                 (
                     sid,
