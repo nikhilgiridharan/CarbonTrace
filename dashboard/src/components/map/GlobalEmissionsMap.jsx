@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Map, { Layer, Source } from "react-map-gl";
+import Map from "react-map-gl";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import RiskBadge from "../shared/RiskBadge.jsx";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+const API = import.meta.env.VITE_API_BASE_URL || "";
 
 export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) {
   const mapRef = useRef(null);
@@ -15,58 +16,60 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
     zoom: 2,
     pitch: 0,
   });
-  const [mode, setMode] = useState("globe");
-  const [countryStats, setCountryStats] = useState([]);
-  const [hoverCountry, setHoverCountry] = useState(null);
   const [supplierNodes, setSupplierNodes] = useState([]);
-
-  useEffect(() => {
-    if (mode !== "heatmap") return;
-    fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/v1/emissions/by-country-detailed`)
-      .then((r) => r.json())
-      .then((d) => setCountryStats(d?.countries || []))
-      .catch(() => setCountryStats([]));
-  }, [mode]);
 
   const selected = useMemo(
     () => (supplierNodes || suppliers || []).find((s) => s.supplier_id === selectedId),
     [supplierNodes, suppliers, selectedId],
   );
 
-  const loadSuppliers = useCallback(
+  const loadSupplierNodes = useCallback(
     async (map) => {
-      const API = import.meta.env.VITE_API_BASE_URL || "";
       try {
+        console.log("Loading supplier nodes...");
+        ["supplier-nodes", "supplier-critical-ring", "supplier-labels", "heatmap-layer", "heatmap-labels"].forEach((id) => {
+          try {
+            if (map.getLayer && map.getLayer(id)) {
+              map.removeLayer(id);
+            }
+          } catch {
+            /* ignore */
+          }
+        });
+        ["suppliers", "heatmap-source"].forEach((id) => {
+          try {
+            if (map.getSource && map.getSource(id)) {
+              map.removeSource(id);
+            }
+          } catch {
+            /* ignore */
+          }
+        });
+
         const res = await fetch(`${API}/api/v1/suppliers/map-data?limit=500`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const list = Array.isArray(data) ? data : data.suppliers || [];
         setSupplierNodes(list);
-        console.log(`Fetched ${list.length} suppliers for map`);
-
-        ["supplier-nodes", "supplier-critical-ring", "supplier-labels"].forEach((id) => {
-          try {
-            if (map.getLayer(id)) map.removeLayer(id);
-          } catch {
-            /* ignore */
-          }
-        });
-        try {
-          if (map.getSource("suppliers")) map.removeSource("suppliers");
-        } catch {
-          /* ignore */
-        }
+        console.log(`Fetched ${list.length} suppliers`);
 
         const features = list
-          .filter(
-            (s) =>
+          .filter((s) => {
+            const lat = parseFloat(s.lat);
+            const lng = parseFloat(s.lng);
+            return (
               s.lat != null &&
               s.lng != null &&
-              !Number.isNaN(parseFloat(s.lat)) &&
-              !Number.isNaN(parseFloat(s.lng)) &&
-              parseFloat(s.lat) !== 0 &&
-              parseFloat(s.lng) !== 0,
-          )
+              !Number.isNaN(lat) &&
+              !Number.isNaN(lng) &&
+              lat !== 0 &&
+              lng !== 0 &&
+              lat >= -90 &&
+              lat <= 90 &&
+              lng >= -180 &&
+              lng <= 180
+            );
+          })
           .map((s) => ({
             type: "Feature",
             geometry: {
@@ -74,18 +77,18 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
               coordinates: [parseFloat(s.lng), parseFloat(s.lat)],
             },
             properties: {
-              supplier_id: s.supplier_id || "",
-              name: s.name || s.supplier_id || "",
-              country: s.country || "",
-              risk_tier: s.risk_tier || "LOW",
-              risk_score: parseFloat(s.risk_score) || 0,
-              emissions_30d: parseFloat(s.emissions_30d_kg) || 0,
-              trend: s.emissions_trend || "STABLE",
+              supplier_id: String(s.supplier_id || ""),
+              name: String(s.name || s.supplier_id || ""),
+              country: String(s.country || ""),
+              risk_tier: String(s.risk_tier || "LOW"),
+              risk_score: Number(s.risk_score) || 0,
+              emissions_30d: Number(s.emissions_30d_kg) || 0,
+              trend: String(s.emissions_trend || "STABLE"),
             },
           }));
-        console.log(`Adding ${features.length} valid supplier features`);
+        console.log(`Valid features: ${features.length}`);
         if (!features.length) {
-          console.warn("No valid supplier coordinates to display");
+          console.warn("No valid supplier coordinates");
           return;
         }
 
@@ -100,7 +103,7 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
           paint: {
             "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 5, 100, 7, 500, 9, 2000, 13, 5000, 17, 10000, 22],
             "circle-color": ["match", ["get", "risk_tier"], "LOW", "#3D8C21", "MEDIUM", "#D97706", "HIGH", "#C2410C", "CRITICAL", "#B91C1C", "#6B7566"],
-            "circle-opacity": 0.85,
+            "circle-opacity": 0.88,
             "circle-stroke-width": 1.5,
             "circle-stroke-color": "#ffffff",
             "circle-stroke-opacity": 0.7,
@@ -112,19 +115,21 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
           source: "suppliers",
           filter: ["==", ["get", "risk_tier"], "CRITICAL"],
           paint: {
-            "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 12, 10000, 32],
+            "circle-radius": ["interpolate", ["linear"], ["get", "emissions_30d"], 0, 12, 10000, 30],
             "circle-color": "transparent",
             "circle-stroke-width": 1.5,
             "circle-stroke-color": "#B91C1C",
-            "circle-stroke-opacity": 0.35,
+            "circle-stroke-opacity": 0.3,
             "circle-opacity": 0,
           },
         });
 
         map.on("click", "supplier-nodes", (e) => {
-          const props = e.features?.[0]?.properties;
+          if (!e.features?.length) return;
+          const props = e.features[0].properties;
           if (!props) return;
-          onSelect?.(props.supplier_id);
+          onSelect?.(props.supplier_id || props.name);
+          console.log("Clicked supplier:", props.name, props.risk_tier, props.emissions_30d);
         });
         map.on("mouseenter", "supplier-nodes", () => {
           map.getCanvas().style.cursor = "pointer";
@@ -132,77 +137,37 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
         map.on("mouseleave", "supplier-nodes", () => {
           map.getCanvas().style.cursor = "";
         });
+        console.log("✓ Supplier nodes added to map");
       } catch (err) {
-        console.error("Failed to load supplier map data:", err);
+        console.error("loadSupplierNodes failed:", err);
       }
     },
     [onSelect],
   );
 
+  const handleMapLoad = useCallback(
+    (evt) => {
+      const map = evt.target || mapRef.current?.getMap?.();
+      if (!map) return;
+      loadSupplierNodes(map);
+    },
+    [loadSupplierNodes],
+  );
+
   useEffect(() => {
-    const map = mapRef.current?.getMap ? mapRef.current.getMap() : mapRef.current;
-    if (!map) return undefined;
-    const onLoad = () => {
-      loadSuppliers(map);
-    };
-    const onStyleLoad = () => {
-      if (mode !== "heatmap") {
-        loadSuppliers(map);
-      }
-    };
-    map.on("load", onLoad);
-    map.on("style.load", onStyleLoad);
-    return () => {
-      map.off("load", onLoad);
-      map.off("style.load", onStyleLoad);
-    };
-  }, [loadSuppliers, mode]);
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+    if (map.isStyleLoaded()) {
+      loadSupplierNodes(map);
+    } else {
+      map.once("style.load", () => loadSupplierNodes(map));
+    }
+  }, [loadSupplierNodes]);
+
   const resetView = useCallback(() => {
     setZoom(2);
     setViewState((vs) => ({ ...vs, longitude: 10, latitude: 25, zoom: 2 }));
   }, []);
-  const countryLookup = useMemo(() => {
-    const m = {};
-    for (const c of countryStats) m[c.country] = c;
-    return m;
-  }, [countryStats]);
-  const countryEmissionExpr = useMemo(() => {
-    // `match` requires label/output pairs before the default. An empty stats
-    // array produced `["match", [get], 0]` which is invalid and can blank the map.
-    if (!countryStats.length) {
-      return ["literal", 0];
-    }
-    const expr = ["match", ["get", "iso_3166_1_alpha_2"]];
-    for (const c of countryStats) {
-      expr.push(c.country, Number(c.total_emissions_kg || 0));
-    }
-    expr.push(0);
-    return expr;
-  }, [countryStats]);
-  const onMapMove = useCallback(
-    (evt) => {
-      setViewState(evt.viewState);
-      setZoom(evt.viewState.zoom);
-      if (mode !== "heatmap") return;
-      const map = evt.target;
-      if (!map.getLayer?.("countries-fill")) return;
-      let f;
-      try {
-        f = map.queryRenderedFeatures(evt.point, { layers: ["countries-fill"] })?.[0];
-      } catch {
-        return;
-      }
-      if (!f) {
-        setHoverCountry(null);
-        return;
-      }
-      const iso = f.properties?.iso_3166_1_alpha_2;
-      const stats = countryLookup[iso];
-      if (stats) setHoverCountry({ iso, ...stats });
-      else setHoverCountry(null);
-    },
-    [mode, countryLookup],
-  );
 
   if (!MAPBOX_TOKEN) {
     return (
@@ -225,102 +190,28 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
 
   mapboxgl.accessToken = MAPBOX_TOKEN;
 
-  const getMapInstance = useCallback(() => {
-    const r = mapRef.current;
-    if (!r) return undefined;
-    return typeof r.getMap === "function" ? r.getMap() : r;
-  }, []);
-  const handleViewModeToggle = useCallback(
-    (nextMode) => {
-      try {
-        setMode(nextMode);
-
-        const map = getMapInstance();
-        if (!map) {
-          console.warn("Map ref not available");
-          return;
-        }
-
-        const layersToRemove = ["heatmap-layer", "heatmap-labels", "supplier-nodes", "supplier-clusters", "supplier-count"];
-        const sourcesToRemove = ["heatmap-source", "suppliers", "supplier-source"];
-
-        layersToRemove.forEach((id) => {
-          try {
-            if (map.getLayer?.(id)) map.removeLayer(id);
-          } catch {
-            /* ignore cleanup error */
-          }
-        });
-        sourcesToRemove.forEach((id) => {
-          try {
-            if (map.getSource?.(id)) map.removeSource(id);
-          } catch {
-            /* ignore cleanup error */
-          }
-        });
-
-        if (nextMode === "heatmap") {
-          setHoverCountry(null);
-          if (!map.isStyleLoaded?.()) {
-            map.once?.("style.load", () => setMode("heatmap"));
-            map.once?.("load", () => setMode("heatmap"));
-          }
-        } else {
-          setMode("globe");
-          setHoverCountry(null);
-        }
-      } catch (topLevelError) {
-        console.error("Heatmap toggle failed:", topLevelError);
-        setMode("globe");
-      }
-    },
-    [getMapInstance],
-  );
-
   return (
     <div style={{ height: "100%", position: "relative" }}>
       <Map
         ref={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         {...viewState}
-        onMove={onMapMove}
+        onMove={(evt) => {
+          setViewState(evt.viewState);
+          setZoom(evt.viewState.zoom);
+        }}
+        onLoad={handleMapLoad}
         onZoomEnd={(e) => {
           const z = e.viewState?.zoom ?? e.target?.getZoom?.();
           if (typeof z === "number" && !Number.isNaN(z)) setZoom(z);
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/light-v11"
-        interactiveLayerIds={mode === "heatmap" ? ["countries-fill"] : ["supplier-nodes"]}
+        interactiveLayerIds={["supplier-nodes"]}
         renderWorldCopies={false}
         maxTileCacheSize={50}
         trackResize={false}
-      >
-        {mode === "globe" ? null : (
-          <Source id="countries" type="vector" url="mapbox://mapbox.country-boundaries-v1">
-            <Layer
-              id="countries-fill"
-              type="fill"
-              source-layer="country_boundaries"
-              paint={{
-                "fill-color": [
-                  "interpolate",
-                  ["linear"],
-                  countryEmissionExpr,
-                  0,
-                  "#dcf0d1",
-                  10000,
-                  "#fbbf24",
-                  50000,
-                  "#f97316",
-                  100000,
-                  "#b91c1c",
-                ],
-                "fill-opacity": 0.55,
-              }}
-            />
-          </Source>
-        )}
-      </Map>
+      />
       <div
         style={{
           position: "absolute",
@@ -430,7 +321,7 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
           −
         </button>
       </div>
-      {mode === "globe" && selected ? (
+      {selected ? (
         <div
           style={{
             position: "absolute",
@@ -455,27 +346,6 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
           </div>
         </div>
       ) : null}
-      {mode === "heatmap" && hoverCountry ? (
-        <div
-          style={{
-            position: "absolute",
-            left: 16,
-            bottom: 16,
-            maxWidth: 280,
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "var(--shadow-md)",
-            padding: "10px 14px",
-            fontFamily: "var(--font-sans)",
-            fontSize: 12,
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>{hoverCountry.iso}</div>
-          <div style={{ marginTop: 4 }}>Emissions: {(hoverCountry.total_emissions_kg || 0).toLocaleString()} kg</div>
-          <div>Suppliers: {(hoverCountry.supplier_count || 0).toLocaleString()}</div>
-        </div>
-      ) : null}
       <div
         style={{
           position: "absolute",
@@ -487,15 +357,18 @@ export default function GlobalEmissionsMap({ suppliers, selectedId, onSelect }) 
       >
         <button
           type="button"
-          onClick={() => handleViewModeToggle("globe")}
+          onClick={() => {
+            const map = mapRef.current?.getMap?.();
+            if (map) loadSupplierNodes(map);
+          }}
           style={{
             fontFamily: "var(--font-sans)",
             fontSize: 12,
             fontWeight: 500,
-            color: mode === "globe" ? "var(--text-inverse)" : "var(--text-secondary)",
+            color: "var(--text-inverse)",
             padding: "6px 10px",
             cursor: "pointer",
-            background: mode === "globe" ? "var(--green-500)" : "var(--bg-surface)",
+            background: "var(--green-500)",
             border: "1px solid var(--border-default)",
             borderRadius: "var(--radius-md)",
             boxShadow: "var(--shadow-sm)",
