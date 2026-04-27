@@ -104,7 +104,7 @@ export default function Sidebar({ pipelineOk }) {
         >
           <span>GitHub</span>
         </a>
-        <a href="https://medium.com/@nickgiridharan" target="_blank" rel="noopener noreferrer" className="cp-nav-link">
+        <a href="https://medium.com/@nikhilgiridharan/building-verdant-019e8e44b7b3" target="_blank" rel="noopener noreferrer" className="cp-nav-link">
           <span>Medium</span>
         </a>
       </nav>
