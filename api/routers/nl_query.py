@@ -17,14 +17,12 @@ from psycopg2.extras import RealDictCursor
 
 from db.connection import get_conn
 
-try:
-    import anthropic
-except Exception:  # pragma: no cover
-    anthropic = None
-
 logger = logging.getLogger(__name__)
 router = APIRouter()
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def get_anthropic_key() -> str:
+    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
 DB_SCHEMA = """
 You are a SQL expert for the Verdant Scope 3 carbon emissions platform.
@@ -137,8 +135,24 @@ def is_relevant_question(question: str) -> bool:
 
 
 def generate_sql(question: str) -> str:
-    if not ANTHROPIC_KEY or anthropic is None:
+    api_key = get_anthropic_key()
+
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set — using fallback SQL")
         q = question.lower()
+        if "critical" in q or "risk" in q:
+            return """
+                SELECT s.country,
+                       COUNT(*) as critical_suppliers,
+                       ROUND(AVG(r.risk_score)::numeric, 3)
+                           as avg_risk_score
+                FROM supplier_risk_scores r
+                JOIN suppliers s ON r.supplier_id = s.supplier_id
+                WHERE r.risk_tier = 'CRITICAL'
+                GROUP BY s.country
+                ORDER BY critical_suppliers DESC
+                LIMIT 15
+            """
         if "worst" in q or "highest" in q or "top" in q:
             return """
                 SELECT s.name, r.risk_tier,
@@ -156,38 +170,71 @@ def generate_sql(question: str) -> str:
             FROM shipment_silver_summary
             GROUP BY transport_mode
             ORDER BY total_emissions_kg DESC
-            LIMIT 50
         """
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=500,
-        messages=[{"role": "user", "content": f"{DB_SCHEMA}\n\nQuestion: {question}"}],
-    )
-    sql = message.content[0].text.strip()
-    return sql.replace("```sql", "").replace("```", "").strip()
+    try:
+        import anthropic as anthropic_sdk
+
+        client = anthropic_sdk.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{DB_SCHEMA}\n\nQuestion: {question}",
+                }
+            ],
+        )
+        sql = message.content[0].text.strip()
+        sql = sql.replace("```sql", "").replace("```", "").strip()
+        logger.info("Claude generated SQL for: '%s'", question[:50])
+        return sql
+    except Exception as e:
+        logger.error("Claude API call failed: %s", e)
+        return """
+            SELECT s.name, r.risk_tier,
+                   ROUND(r.emissions_30d_kg::numeric, 0)
+                       as emissions_30d_kg
+            FROM supplier_risk_scores r
+            JOIN suppliers s ON r.supplier_id = s.supplier_id
+            ORDER BY r.emissions_30d_kg DESC NULLS LAST
+            LIMIT 10
+        """
 
 
-def generate_insight(question: str, rows: list[dict]) -> str:
-    if not ANTHROPIC_KEY or anthropic is None or not rows:
+def generate_insight(question: str, rows: list, sql: str) -> str:
+    api_key = get_anthropic_key()
+    if not api_key or not rows:
         return f"Found {len(rows)} results for your query."
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    summary = json.dumps(rows[:5], default=str)
-    message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=150,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"Question: {question}\nData (first 5 rows): {summary}\nTotal rows: {len(rows)}\n\n"
-                    "Write ONE sentence summarizing the key insight from this data."
-                ),
-            }
-        ],
-    )
-    return message.content[0].text.strip()
+
+    try:
+        import anthropic as anthropic_sdk
+
+        client = anthropic_sdk.Anthropic(api_key=api_key)
+        summary = json.dumps(rows[:5], default=str)
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=150,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question: {question}\n"
+                        f"SQL: {sql}\n"
+                        f"Data (first 5 rows): {summary}\n"
+                        f"Total rows: {len(rows)}\n\n"
+                        "Write ONE sentence summarizing the key "
+                        "insight. Be specific with numbers. "
+                        "Be concise."
+                    ),
+                }
+            ],
+        )
+        return message.content[0].text.strip()
+    except Exception as e:
+        logger.error("Insight generation failed: %s", e)
+        return f"Found {len(rows)} results for your query."
 
 
 @router.post("/query", response_model=NLQueryResponse)
@@ -226,7 +273,7 @@ async def natural_language_query(request: NLQueryRequest):
         raise HTTPException(status_code=400, detail=f"Query failed: {str(e)[:200]}") from e
 
     try:
-        insight = generate_insight(request.question, rows)
+        insight = generate_insight(request.question, rows, sql)
     except Exception:
         insight = f"Found {len(rows)} results."
 
@@ -238,6 +285,16 @@ async def natural_language_query(request: NLQueryRequest):
         row_count=len(rows),
         insight=insight,
     )
+
+
+@router.get("/debug/key-status")
+async def check_key_status():
+    key = get_anthropic_key()
+    return {
+        "key_set": bool(key),
+        "key_prefix": key[:12] + "..." if key else "not set",
+        "key_length": len(key),
+    }
 
 
 @router.get("/query/examples")
