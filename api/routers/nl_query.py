@@ -3,83 +3,50 @@ nl_query.py
 Verdant — Natural Language Query Engine
 """
 
-from __future__ import annotations
-
+import os
 import json
 import logging
-import os
-import re
-
 import psycopg2
+from psycopg2.extras import RealDictCursor
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from psycopg2.extras import RealDictCursor
-
-from db.connection import get_conn
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def get_anthropic_key() -> str:
-    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
 DB_SCHEMA = """
 You are a SQL expert for the Verdant Scope 3 carbon emissions platform.
 Convert the user's natural language question into a PostgreSQL query.
 
 DATABASE SCHEMA:
+
 Table: shipment_silver_summary
-  - shipment_id VARCHAR
-  - supplier_id VARCHAR
-  - sku_id VARCHAR
-  - transport_mode VARCHAR
-  - weight_kg FLOAT
-  - distance_km FLOAT
-  - cost_usd FLOAT
-  - emissions_kg_co2e FLOAT
-  - carbon_intensity FLOAT
-  - route_key VARCHAR
-  - is_anomaly BOOLEAN
-  - event_at TIMESTAMP
-  - supplier_country VARCHAR
+  - shipment_id, supplier_id, sku_id
+  - transport_mode VARCHAR (AIR, OCEAN, TRUCK, RAIL)
+  - weight_kg FLOAT, distance_km FLOAT, cost_usd FLOAT
+  - emissions_kg_co2e FLOAT, carbon_intensity FLOAT
+  - event_at TIMESTAMP, supplier_country VARCHAR
+  - supplier_name VARCHAR, product_category VARCHAR
 
 Table: suppliers
-  - supplier_id VARCHAR
-  - name VARCHAR
-  - country VARCHAR
-  - lat FLOAT
-  - lng FLOAT
-  - tier INT
-  - industry VARCHAR
+  - supplier_id, name, country, lat, lng, tier, industry
 
 Table: supplier_risk_scores
-  - supplier_id VARCHAR
-  - risk_score FLOAT
-  - risk_tier VARCHAR
-  - emissions_30d_kg FLOAT
-  - emissions_90d_kg FLOAT
-  - emissions_trend VARCHAR
-  - model_version VARCHAR
+  - supplier_id, risk_score FLOAT (0-1)
+  - risk_tier VARCHAR (LOW, MEDIUM, HIGH, CRITICAL)
+  - emissions_30d_kg FLOAT, emissions_90d_kg FLOAT
+  - emissions_trend VARCHAR (IMPROVING, STABLE, WORSENING)
 
 Table: emissions_alerts
-  - alert_id UUID
-  - alert_type VARCHAR
-  - severity VARCHAR
-  - supplier_id VARCHAR
-  - emissions_kg FLOAT
-  - message TEXT
-  - created_at TIMESTAMP
-  - acknowledged BOOLEAN
+  - alert_type, severity, supplier_id
+  - emissions_kg, message, created_at, acknowledged BOOLEAN
 
 RULES:
-1. Only generate SELECT queries — never INSERT, UPDATE, DELETE, DROP
-2. Always LIMIT results to 50 rows maximum unless user asks for totals/counts
-3. Format numbers with 2 decimal places in the query using ROUND()
-4. Use NOW() for current time comparisons
-5. Return ONLY the SQL query, nothing else
-6. If the question cannot be answered with this schema, return:
-   SELECT 'I cannot answer that question with the available data' as message
+1. Only generate SELECT queries
+2. Always LIMIT to 50 rows max
+3. Use ROUND() for numbers
+4. Return ONLY the SQL query, nothing else
+5. No markdown, no explanation, just SQL
 """
 
 
@@ -90,196 +57,172 @@ class NLQueryRequest(BaseModel):
 class NLQueryResponse(BaseModel):
     question: str
     sql: str
-    columns: list[str]
-    rows: list[dict]
+    columns: list
+    rows: list
     row_count: int
     insight: str
 
 
-RELEVANCE_TERMS = {
-    "emission",
-    "emissions",
-    "carbon",
-    "co2",
-    "co2e",
-    "scope 3",
-    "supplier",
-    "suppliers",
-    "shipment",
-    "shipments",
-    "sku",
-    "skus",
-    "transport",
-    "route",
-    "routes",
-    "anomaly",
-    "anomalies",
-    "risk",
-    "intensity",
-    "country",
-    "countries",
-    "trend",
-    "forecast",
-    "mode",
-}
+def get_db_conn():
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        raise ValueError("DATABASE_URL not set")
+    return psycopg2.connect(url)
 
 
-def is_relevant_question(question: str) -> bool:
-    q = (question or "").lower()
-    compact = re.sub(r"[^a-z0-9\s]+", " ", q)
-    # Treat obvious in-domain entities as relevant.
-    if re.search(r"\bsup-\d+\b|\bsku-\d+\b", q):
-        return True
-    # Match by key domain terms.
-    return any(term in compact for term in RELEVANCE_TERMS)
+def call_claude(prompt: str, max_tokens: int = 500) -> str:
+    """
+    Call Claude API. Reads key fresh from environment each time.
+    Returns empty string if key not set or call fails.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+    if not api_key:
+        logger.warning("ANTHROPIC_API_KEY not set")
+        return ""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = message.content[0].text.strip()
+        logger.info(f"Claude response: {result[:80]}...")
+        return result
+    except Exception as e:
+        logger.error(f"Claude API call failed: {e}")
+        return ""
 
 
 def generate_sql(question: str) -> str:
-    api_key = get_anthropic_key()
+    """Convert natural language to SQL using Claude."""
 
-    if not api_key:
-        logger.warning("ANTHROPIC_API_KEY not set — using fallback SQL")
-        q = question.lower()
-        if "critical" in q or "risk" in q:
-            return """
-                SELECT s.country,
-                       COUNT(*) as critical_suppliers,
-                       ROUND(AVG(r.risk_score)::numeric, 3)
-                           as avg_risk_score
-                FROM supplier_risk_scores r
-                JOIN suppliers s ON r.supplier_id = s.supplier_id
-                WHERE r.risk_tier = 'CRITICAL'
-                GROUP BY s.country
-                ORDER BY critical_suppliers DESC
-                LIMIT 15
-            """
-        if "worst" in q or "highest" in q or "top" in q:
-            return """
-                SELECT s.name, r.risk_tier,
-                       ROUND(r.emissions_30d_kg::numeric, 0) as emissions_30d_kg,
-                       r.emissions_trend
-                FROM supplier_risk_scores r
-                JOIN suppliers s ON r.supplier_id = s.supplier_id
-                ORDER BY r.emissions_30d_kg DESC NULLS LAST
-                LIMIT 10
-            """
+    result = call_claude(
+        f"{DB_SCHEMA}
+
+Question: {question}",
+        max_tokens=500
+    )
+
+    if result:
+        # Strip any markdown Claude might have added
+        sql = result.replace("```sql", "").replace("```", "").strip()
+        if sql.upper().startswith("SELECT"):
+            return sql
+
+    # Fallback SQL based on keywords
+    logger.info("Using fallback SQL")
+    q = question.lower()
+
+    if "critical" in q and ("country" in q or "where" in q):
         return """
-            SELECT transport_mode,
-                   COUNT(*) as shipments,
-                   ROUND(SUM(emissions_kg_co2e)::numeric, 0) as total_emissions_kg
-            FROM shipment_silver_summary
-            GROUP BY transport_mode
-            ORDER BY total_emissions_kg DESC
+            SELECT s.country,
+                   COUNT(*) as critical_suppliers,
+                   ROUND(AVG(r.risk_score)::numeric, 3) as avg_risk_score
+            FROM supplier_risk_scores r
+            JOIN suppliers s ON r.supplier_id = s.supplier_id
+            WHERE r.risk_tier = 'CRITICAL'
+            GROUP BY s.country
+            ORDER BY critical_suppliers DESC
+            LIMIT 15
         """
-
-    try:
-        import anthropic as anthropic_sdk
-
-        client = anthropic_sdk.Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{DB_SCHEMA}\n\nQuestion: {question}",
-                }
-            ],
-        )
-        sql = message.content[0].text.strip()
-        sql = sql.replace("```sql", "").replace("```", "").strip()
-        logger.info("Claude generated SQL for: '%s'", question[:50])
-        return sql
-    except Exception as e:
-        logger.error("Claude API call failed: %s", e)
+    if "worst" in q or "highest" in q or "top" in q:
         return """
-            SELECT s.name, r.risk_tier,
-                   ROUND(r.emissions_30d_kg::numeric, 0)
-                       as emissions_30d_kg
+            SELECT s.name, s.country, r.risk_tier,
+                   ROUND(r.emissions_30d_kg::numeric, 0) as emissions_30d_kg,
+                   r.emissions_trend
             FROM supplier_risk_scores r
             JOIN suppliers s ON r.supplier_id = s.supplier_id
             ORDER BY r.emissions_30d_kg DESC NULLS LAST
             LIMIT 10
         """
+    if "china" in q or "cn" in q:
+        return """
+            SELECT s.name, r.risk_tier,
+                   ROUND(r.emissions_30d_kg::numeric, 0) as emissions_30d_kg,
+                   r.emissions_trend
+            FROM supplier_risk_scores r
+            JOIN suppliers s ON r.supplier_id = s.supplier_id
+            WHERE s.country = 'CN'
+            ORDER BY r.emissions_30d_kg DESC NULLS LAST
+            LIMIT 10
+        """
+    return """
+        SELECT transport_mode,
+               COUNT(*) as shipments,
+               ROUND(SUM(emissions_kg_co2e)::numeric, 0) as total_emissions_kg
+        FROM shipment_silver_summary
+        GROUP BY transport_mode
+        ORDER BY total_emissions_kg DESC
+    """
 
 
-def generate_insight(question: str, rows: list, sql: str) -> str:
-    api_key = get_anthropic_key()
-    logger.info("generate_insight called — key set: %s, rows: %s", bool(api_key), len(rows))
-    if not api_key or not rows:
-        return f"Found {len(rows)} results for your query."
+def generate_insight(question: str, rows: list) -> str:
+    """Generate a one-sentence insight using Claude."""
 
-    try:
-        import anthropic
+    if not rows:
+        return "No results found for this query."
 
-        client = anthropic.Anthropic(api_key=api_key)
-        summary = json.dumps(rows[:5], default=str)
-        logger.info("Calling Claude for insight...")
-        message = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=150,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Question: {question}\n"
-                        f"Data (first 5 rows): {summary}\n"
-                        f"Total rows: {len(rows)}\n\n"
-                        "Write ONE sentence summarizing the key "
-                        "insight from this data. Be specific with "
-                        "numbers. Be concise. Start directly with "
-                        "the insight, no preamble."
-                    ),
-                }
-            ],
-        )
-        insight = message.content[0].text.strip()
-        logger.info("Claude insight: %s", insight[:80])
-        return insight
-    except Exception as e:
-        logger.error("Insight generation failed: %s", e, exc_info=True)
-        return f"Found {len(rows)} results."
+    summary = json.dumps(rows[:5], default=str)
+
+    prompt = (
+        f"Question asked: {question}
+"
+        f"Query returned {len(rows)} rows. First 5: {summary}
+
+"
+        f"Write exactly ONE sentence summarizing the most important "
+        f"insight from this data. Be specific with the actual numbers "
+        f"from the data. Do not start with 'The data shows' or "
+        f"'Based on'. Start directly with the insight."
+    )
+
+    result = call_claude(prompt, max_tokens=120)
+
+    if result:
+        return result
+
+    # Fallback
+    return f"Found {len(rows)} results matching your query."
 
 
 @router.post("/query", response_model=NLQueryResponse)
 async def natural_language_query(request: NLQueryRequest):
-    if not request.question or len(request.question.strip()) < 5:
+    if not request.question or len(request.question.strip()) < 3:
         raise HTTPException(status_code=400, detail="Question too short")
     if len(request.question) > 500:
-        raise HTTPException(status_code=400, detail="Question too long (max 500 chars)")
-    if not is_relevant_question(request.question):
-        return NLQueryResponse(
-            question=request.question,
-            sql="SELECT 'not relevant question' as message",
-            columns=[],
-            rows=[],
-            row_count=0,
-            insight="not relevant question",
-        )
+        raise HTTPException(status_code=400, detail="Question too long")
 
+    # Generate SQL
     try:
         sql = generate_sql(request.question)
-        logger.info("NL query generated SQL")
+        logger.info(f"SQL: {sql[:100]}")
     except Exception as e:
-        logger.error("SQL generation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to generate query") from e
+        raise HTTPException(status_code=500,
+            detail=f"SQL generation failed: {e}")
 
-    sql_upper = sql.upper().strip()
-    if not sql_upper.startswith("SELECT"):
-        raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+    # Safety check
+    if not sql.strip().upper().startswith("SELECT"):
+        raise HTTPException(status_code=400,
+            detail="Only SELECT queries allowed")
 
+    # Execute
     try:
-        with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(sql)
-            rows = [dict(row) for row in cur.fetchall()]
-            columns = [d[0] for d in cur.description] if cur.description else []
-    except psycopg2.Error as e:
-        raise HTTPException(status_code=400, detail=f"Query failed: {str(e)[:200]}") from e
+        conn = get_db_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(sql)
+        rows = [dict(r) for r in cur.fetchall()]
+        columns = [d[0] for d in cur.description] if cur.description else []
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=400,
+            detail=f"Query failed: {str(e)[:200]}")
 
-    try:
-        insight = generate_insight(request.question, rows, sql)
-    except Exception:
-        insight = f"Found {len(rows)} results."
+    # Generate insight
+    insight = generate_insight(request.question, rows)
 
     return NLQueryResponse(
         question=request.question,
@@ -291,27 +234,25 @@ async def natural_language_query(request: NLQueryRequest):
     )
 
 
+@router.get("/query/examples")
+async def get_examples():
+    return {"examples": [
+        "Which suppliers in China are getting worse this month?",
+        "What are my top 5 highest-emission transport routes?",
+        "Which product categories have the highest carbon intensity?",
+        "Show me all CRITICAL risk suppliers and their 30-day emissions",
+        "Which country has the most suppliers shipping by air?",
+        "Which suppliers improved their emissions trend this quarter?",
+        "What is the average emission per shipment by transport mode?",
+        "How many anomalies were detected in the last 7 days?",
+    ]}
+
+
 @router.get("/debug/key-status")
-async def check_key_status():
-    key = get_anthropic_key()
+async def key_status():
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     return {
         "key_set": bool(key),
-        "key_prefix": key[:12] + "..." if key else "not set",
+        "key_prefix": key[:15] + "..." if key else "not set",
         "key_length": len(key),
-    }
-
-
-@router.get("/query/examples")
-async def get_example_queries():
-    return {
-        "examples": [
-            "Which suppliers in China are getting worse this month?",
-            "What are my top 5 highest-emission transport routes?",
-            "Which product categories have the highest carbon intensity?",
-            "Show me all CRITICAL risk suppliers and their 30-day emissions",
-            "How many anomalies were detected in the last 7 days?",
-            "Which country has the most suppliers shipping by air?",
-            "What is the average emission per shipment by transport mode?",
-            "Which suppliers improved their emissions trend this quarter?",
-        ]
     }
