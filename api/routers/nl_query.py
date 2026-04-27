@@ -101,9 +101,7 @@ def generate_sql(question: str) -> str:
     """Convert natural language to SQL using Claude."""
 
     result = call_claude(
-        f"{DB_SCHEMA}
-
-Question: {question}",
+        f"{DB_SCHEMA}\n\nQuestion: {question}",
         max_tokens=500
     )
 
@@ -169,11 +167,8 @@ def generate_insight(question: str, rows: list) -> str:
     summary = json.dumps(rows[:5], default=str)
 
     prompt = (
-        f"Question asked: {question}
-"
-        f"Query returned {len(rows)} rows. First 5: {summary}
-
-"
+        f"Question asked: {question}\n"
+        f"Query returned {len(rows)} rows. First 5: {summary}\n\n"
         f"Write exactly ONE sentence summarizing the most important "
         f"insight from this data. Be specific with the actual numbers "
         f"from the data. Do not start with 'The data shows' or "
