@@ -17,7 +17,6 @@ const ScenarioEngine = lazy(() => import("./views/ScenarioEngine.jsx"));
 const Forecast = lazy(() => import("./views/Forecast.jsx"));
 const Wiki = lazy(() => import("./views/Wiki.jsx"));
 const GoFundMe = lazy(() => import("./views/GoFundMe.jsx"));
-const Introduction = lazy(() => import("./views/Introduction.jsx"));
 
 const fullPageLoading = (
   <div
@@ -99,8 +98,8 @@ export default function App() {
     <BrowserRouter>
       <Suspense fallback={fullPageLoading}>
         <Routes>
-          <Route path="/" element={<Introduction />} />
-          <Route path="/introduction" element={<Introduction />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/introduction" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard/*" element={<Shell />} />
           <Route path="/ask" element={<Navigate to="/dashboard/ask" replace />} />
           <Route path="/suppliers" element={<Navigate to="/dashboard/suppliers" replace />} />
@@ -109,7 +108,7 @@ export default function App() {
           <Route path="/scenarios" element={<Navigate to="/dashboard/scenarios" replace />} />
           <Route path="/forecast" element={<Navigate to="/dashboard/forecast" replace />} />
           <Route path="/wiki" element={<Navigate to="/dashboard/wiki" replace />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

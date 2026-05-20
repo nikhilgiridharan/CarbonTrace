@@ -45,12 +45,12 @@ export default function Sidebar({ pipelineOk }) {
           <div
             role="button"
             tabIndex={0}
-            aria-label="Verdant, go to introduction"
-            onClick={() => navigate("/introduction")}
+            aria-label="Verdant, go to overview"
+            onClick={() => navigate("/dashboard")}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                navigate("/introduction");
+                navigate("/dashboard");
               }
             }}
             style={{
